@@ -1,0 +1,2 @@
+"""DealSignal package."""
+

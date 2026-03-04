@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Top Strategic Signals</h1>
+  <p>Highest-scoring opportunities across your monitored sources.</p>
+</section>
+{% for event in events %}
+<div class="card">
+  <div class="row">
+    <div>
+      <strong>{{ event.company.name }}</strong>
+      <span class="pill">{{ event.signal_type }}</span>
+    </div>
+    <span class="score">Score {{ event.score }}</span>
+  </div>
+  <p class="summary">{{ event.summary }}</p>
+  <p class="muted mono">Source: <a href="{{ event.source.url }}" target="_blank">{{ event.source.url }}</a></p>
+  <p class="actions"><a href="/events/{{ event.id }}">Open event details</a></p>
+</div>
+{% else %}
+<div class="empty">No events yet. Run <code>uv run python main.py run-pipeline</code>.</div>
+{% endfor %}
+{% endblock %}

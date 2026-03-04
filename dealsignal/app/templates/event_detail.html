@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Event #{{ event.id }}</h1>
+  <p>Detailed strategic signal breakdown with evidence and extracted metadata.</p>
+</section>
+<div class="card">
+  <div class="row">
+    <div>
+      <strong>{{ event.company.name }}</strong>
+      <span class="pill">{{ event.signal_type }}</span>
+    </div>
+    <span class="score">Score {{ event.score }}</span>
+  </div>
+  <p class="summary"><strong>Summary:</strong> {{ event.summary }}</p>
+  <p><strong>Evidence:</strong> {{ event.evidence_excerpt }}</p>
+  <div class="row">
+    <span class="pill">Confidence {{ event.confidence }}</span>
+    <span class="pill">Strength {{ event.strength }}</span>
+    <span class="pill">Created {{ event.created_at.strftime('%Y-%m-%d') }}</span>
+  </div>
+  <p class="muted mono"><strong>Source:</strong> <a href="{{ event.source.url }}" target="_blank">{{ event.source.url }}</a></p>
+  <p class="actions"><a href="/companies/{{ event.company.id }}">Back to company</a></p>
+  <h3>Extracted Fields</h3>
+  <pre>{{ event.extracted_fields }}</pre>
+</div>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Watchlist Companies</h1>
+  <p>Browse each tracked company and inspect related strategic signals.</p>
+</section>
+{% for company in companies %}
+<div class="card">
+  <div class="row">
+    <strong>{{ company.name }}</strong>
+    <span class="pill">Company ID {{ company.id }}</span>
+  </div>
+  <p class="actions"><a href="/companies/{{ company.id }}">Open company workspace</a></p>
+</div>
+{% else %}
+<div class="empty">No companies found.</div>
+{% endfor %}
+{% endblock %}
