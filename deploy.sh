@@ -167,6 +167,8 @@ build_secret_mapping() {
 log "Checking Azure CLI prerequisites..."
 az extension add --name containerapp --upgrade
 az provider register --namespace Microsoft.App --output none
+az provider register --namespace Microsoft.ContainerRegistry --output none
+az provider register --namespace Microsoft.ManagedIdentity --output none
 
 ensure_logged_in
 ensure_resource_group
