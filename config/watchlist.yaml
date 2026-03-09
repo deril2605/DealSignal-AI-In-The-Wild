@@ -1,2 +1,12 @@
 companies:
-  - Stripe
+  - name: Stripe
+    execs:
+      - Patrick Collison
+      - John Collison
+    themes:
+      - payments
+      - enterprise expansion
+      - strategic partnerships
+    aliases:
+      - Stripe Inc.
+    sector: Fintech

@@ -7,7 +7,6 @@ from urllib.parse import quote_plus
 
 import httpx
 
-from dealsignal.agents.basic_provider import BasicProvider
 from dealsignal.agents.web_provider import WebCrawlerProvider
 
 logger = logging.getLogger(__name__)
@@ -17,7 +16,6 @@ class TinyFishProvider(WebCrawlerProvider):
     def __init__(self) -> None:
         self.api_key = os.getenv("TINYFISH_API_KEY", "")
         self.base_url = os.getenv("TINYFISH_BASE_URL", "https://agent.tinyfish.ai").rstrip("/")
-        self.fallback = BasicProvider()
         self.client = httpx.Client(
             headers={
                 "Content-Type": "application/json",
@@ -55,8 +53,8 @@ class TinyFishProvider(WebCrawlerProvider):
                 )
             return normalized
         except Exception as exc:  # noqa: BLE001
-            logger.warning("TinyFish search failed, using fallback for query '%s': %s", query, exc)
-            return self.fallback.search(company=company, query=query, max_results=max_results)
+            logger.warning("TinyFish search failed for query '%s': %s", query, exc)
+            return []
 
     def fetch_article(self, url: str) -> dict[str, Any] | None:
         try:
@@ -68,7 +66,7 @@ class TinyFishProvider(WebCrawlerProvider):
             data = self._run_goal(target_url=url, goal=goal)
             text = data.get("text", "")
             if not text:
-                return self.fallback.fetch_article(url)
+                return None
             return {
                 "url": url,
                 "title": data.get("title", url),
@@ -77,8 +75,8 @@ class TinyFishProvider(WebCrawlerProvider):
                 "evidence_excerpt": data.get("evidence_excerpt", text[:400]),
             }
         except Exception as exc:  # noqa: BLE001
-            logger.warning("TinyFish fetch failed, using fallback for %s: %s", url, exc)
-            return self.fallback.fetch_article(url)
+            logger.warning("TinyFish fetch failed for %s: %s", url, exc)
+            return None
 
     def _run_goal(self, target_url: str, goal: str) -> dict[str, Any]:
         payload = {

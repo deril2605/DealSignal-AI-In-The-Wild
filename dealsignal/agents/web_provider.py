@@ -15,13 +15,35 @@ class WebCrawlerProvider(ABC):
         raise NotImplementedError
 
 
+def _require_tinyfish_key() -> None:
+    if not os.getenv("TINYFISH_API_KEY"):
+        raise RuntimeError("TINYFISH_API_KEY is required. BasicProvider has been disabled.")
+
+
 def get_provider() -> WebCrawlerProvider:
-    if os.getenv("TINYFISH_API_KEY"):
-        from dealsignal.agents.tinyfish_provider import TinyFishProvider
+    _require_tinyfish_key()
+    from dealsignal.agents.tinyfish_provider import TinyFishProvider
 
-        return TinyFishProvider()
+    return TinyFishProvider()
 
-    from dealsignal.agents.basic_provider import BasicProvider
 
-    return BasicProvider()
+def get_discovery_provider() -> WebCrawlerProvider:
+    _require_tinyfish_key()
+    from dealsignal.agents.tinyfish_provider import TinyFishProvider
 
+    return TinyFishProvider()
+
+
+def get_fetch_primary_provider() -> WebCrawlerProvider:
+    _require_tinyfish_key()
+    from dealsignal.agents.tinyfish_provider import TinyFishProvider
+
+    return TinyFishProvider()
+
+
+def get_fetch_fallback_provider() -> WebCrawlerProvider | None:
+    return None
+
+
+def get_discovery_fallback_provider() -> WebCrawlerProvider | None:
+    return None

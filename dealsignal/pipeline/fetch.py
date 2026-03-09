@@ -16,7 +16,12 @@ from dealsignal.models.source import Source
 logger = logging.getLogger(__name__)
 
 
-def fetch_sources(session: Session, provider: WebCrawlerProvider, raw_dir: str | Path = "data/raw") -> int:
+def fetch_sources(
+    session: Session,
+    provider: WebCrawlerProvider,
+    raw_dir: str | Path = "data/raw",
+    fallback_provider: WebCrawlerProvider | None = None,
+) -> int:
     target_dir = Path(raw_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     pending_sources = session.scalars(
@@ -30,7 +35,8 @@ def fetch_sources(session: Session, provider: WebCrawlerProvider, raw_dir: str |
     if max_workers > 1:
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             future_map = {
-                pool.submit(provider.fetch_article, source.url): source.id for source in pending_sources
+                pool.submit(_fetch_with_fallback, provider, fallback_provider, source.url): source.id
+                for source in pending_sources
             }
             for future in as_completed(future_map):
                 source_id = future_map[future]
@@ -41,7 +47,11 @@ def fetch_sources(session: Session, provider: WebCrawlerProvider, raw_dir: str |
                     fetched_by_source_id[source_id] = None
     else:
         for source in pending_sources:
-            fetched_by_source_id[source.id] = provider.fetch_article(source.url)
+            fetched_by_source_id[source.id] = _fetch_with_fallback(
+                provider=provider,
+                fallback_provider=fallback_provider,
+                url=source.url,
+            )
 
     processed = 0
     for source in pending_sources:
@@ -64,6 +74,8 @@ def fetch_sources(session: Session, provider: WebCrawlerProvider, raw_dir: str |
             source.discovered_at = datetime.utcnow()
         processed += 1
 
+    # Ensure downstream stages in the same session can query updated statuses/paths.
+    session.flush()
     logger.info("Fetch complete. Processed: %s", processed)
     return processed
 
@@ -96,3 +108,19 @@ def _coerce_datetime(value: object) -> datetime | None:
             except ValueError:
                 continue
     return None
+
+
+def _fetch_with_fallback(
+    provider: WebCrawlerProvider,
+    fallback_provider: WebCrawlerProvider | None,
+    url: str,
+) -> dict | None:
+    article = provider.fetch_article(url)
+    if article and article.get("text"):
+        return article
+    if fallback_provider is not None and fallback_provider.__class__ != provider.__class__:
+        logger.info("Primary fetch failed for %s, trying fallback provider", url)
+        fallback_article = fallback_provider.fetch_article(url)
+        if fallback_article and fallback_article.get("text"):
+            return fallback_article
+    return article

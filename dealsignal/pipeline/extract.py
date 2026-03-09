@@ -28,6 +28,20 @@ SIGNAL_TYPES = {
     "Other",
 }
 
+STRATEGIC_TERMS = (
+    "expansion",
+    "fundraising",
+    "funding",
+    "round",
+    "acquisition",
+    "acquire",
+    "partnership",
+    "partner",
+    "hiring",
+    "leadership",
+    "regulatory",
+)
+
 
 class ExtractedFields(BaseModel):
     geography: list[str] = Field(default_factory=list)
@@ -73,6 +87,11 @@ def extract_from_fetched_sources(session: Session) -> int:
         logger.warning("Azure OpenAI client is not configured. Skipping extraction.")
         return 0
 
+    min_article_chars = _env_int("MIN_ARTICLE_CHARS", 700)
+    min_confidence = _env_float("MIN_SIGNAL_CONFIDENCE", 0.55)
+    min_strength = _env_float("MIN_SIGNAL_STRENGTH", 0.50)
+    min_evidence_chars = _env_int("MIN_EVIDENCE_CHARS", 60)
+
     fetched_sources = session.scalars(
         select(Source).where(Source.status.in_(["fetched", "extract_error"]))
     ).all()
@@ -87,12 +106,20 @@ def extract_from_fetched_sources(session: Session) -> int:
             continue
 
         article_text = text_path.read_text(encoding="utf-8")
+        if not _looks_signal_bearing(article_text, source.company.name, min_article_chars):
+            source.status = "extracted"
+            continue
+
         signals = extract_signals_with_llm(client, article_text)
         if not signals:
             source.status = "extracted"
             continue
 
         for signal in signals:
+            if signal.confidence < min_confidence or signal.strength < min_strength:
+                continue
+            if len((signal.evidence_excerpt or "").strip()) < min_evidence_chars:
+                continue
             fields = signal.extracted_fields.model_dump()
             fingerprint = generate_event_fingerprint(
                 company_name=source.company.name,
@@ -256,3 +283,32 @@ def _coerce_score(value: Any) -> float:
         except ValueError:
             return 0.5
     return 0.5
+
+
+def _looks_signal_bearing(article_text: str, company_name: str, min_chars: int) -> bool:
+    if len(article_text) < min_chars:
+        return False
+    lowered = article_text.lower()
+    if company_name.lower() not in lowered:
+        return False
+    return any(term in lowered for term in STRATEGIC_TERMS)
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
