@@ -14,6 +14,32 @@
     </a>
   </p>
 </section>
+{% if top_opportunities %}
+<section class="card" style="margin-bottom:16px;">
+  <div class="row">
+    <div>
+      <strong>Top Opportunities This Week</strong>
+      <p class="muted" style="margin:6px 0 0;">Lead-scored suggestions ranked for quick human review.</p>
+    </div>
+    <p class="actions" style="margin:0;"><a href="/opportunities">Open full ranking</a></p>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px;">
+    {% for item in top_opportunities %}
+    <a href="/events/{{ item.event.id }}" style="text-decoration:none;color:inherit;">
+      <div class="card" style="margin:0;height:100%;background:#fffcf4;border-color:#f2d48b;">
+        <div class="row">
+          <strong>{{ item.company.name }}</strong>
+          <span class="score lead-score">Lead {{ item.lead_score["lead_score"] }}</span>
+        </div>
+        <p class="muted" style="margin:8px 0 0;">{{ item.event.signal_type }}</p>
+        <p class="summary" style="font-size:0.88rem;">{{ item.event.summary }}</p>
+        <p class="muted" style="margin:0;">{{ item.lead_score["explanation"] }}</p>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 <div style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start;">
   <aside class="card" style="position:sticky;top:78px;">
     <form method="get" action="/">
@@ -92,10 +118,18 @@
           <span class="pill">STANDARD</span>
           {% endif %}
         </div>
-        <span class="score">Score {{ item.event.score }}</span>
+        <div class="row" style="gap:8px;">
+          {% if item.lead_score_view %}
+          <span class="score lead-score">Lead {{ item.lead_score_view["lead_score"] }}</span>
+          {% endif %}
+          <span class="score">Score {{ item.event.score }}</span>
+        </div>
       </div>
       <p class="summary">{{ item.event.summary }}</p>
       <p class="muted">Date: {{ item.event.created_at.strftime('%Y-%m-%d') }}</p>
+      {% if item.lead_score_view %}
+      <p class="muted"><strong>Why ranked:</strong> {{ item.lead_score_view["explanation"] }}</p>
+      {% endif %}
       {% if item.delta_view %}
       <p class="muted">
         <strong>{{ item.delta_view["headline"] }}:</strong>

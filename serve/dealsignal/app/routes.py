@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from dealsignal.models.company import Company
 from dealsignal.models.company_narrative import CompanyNarrative
 from dealsignal.models.database import SessionLocal
+from dealsignal.models.lead_score import LeadScore
 from dealsignal.models.narrative_delta import NarrativeDelta
 from dealsignal.models.pipeline_run import PipelineRun
 from dealsignal.models.signal_event import SignalEvent
@@ -76,6 +77,7 @@ def home(
     event_cards.sort(
         key=lambda card: (
             {"alert": 0, "recorded": 1, "standard": 2}.get(card["change_status"], 3),
+            -card["lead_score_value"],
             -card["event"].score,
         )
     )
@@ -88,12 +90,14 @@ def home(
     if not selected_signal_types:
         selected_signal_types = list(signal_type_options)
     latest_run = db.scalars(select(PipelineRun).order_by(PipelineRun.started_at.desc()).limit(1)).first()
+    top_opportunities = _top_opportunities(db, limit=5)
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "events": event_cards,
             "latest_run": latest_run,
+            "top_opportunities": top_opportunities,
             "companies": companies,
             "signal_types": signal_type_options,
             "change_status_options": [
@@ -121,6 +125,14 @@ def companies(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("companies.html", {"request": request, "companies": items})
 
 
+@router.get("/opportunities")
+def opportunities(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(
+        "opportunities.html",
+        {"request": request, "opportunities": _top_opportunities(db, limit=25)},
+    )
+
+
 @router.get("/companies/{company_id}")
 def company_detail(company_id: int, request: Request, db: Session = Depends(get_db)):
     company = db.get(Company, company_id)
@@ -146,26 +158,28 @@ def company_detail(company_id: int, request: Request, db: Session = Depends(get_
         )
     )
     narrative = db.scalar(select(CompanyNarrative).where(CompanyNarrative.company_id == company_id))
-    events_view = [{"event": event, "delta_view": _delta_to_view(event.narrative_delta)} for event in events]
+    events_view = [_event_card_view(event) for event in events]
     events_view.sort(
         key=lambda item: (
             {"alert": 0, "recorded": 1, "standard": 2}.get(
-                "alert"
-                if item["delta_view"] and item["delta_view"]["should_alert"]
-                else "recorded"
-                if item["delta_view"]
-                else "standard",
+                item["change_status"],
                 3,
             ),
+            -item["lead_score_value"],
             -item["event"].score,
         )
     )
+    top_company_opportunities = sorted(
+        [item for item in events_view if item["lead_score_view"]],
+        key=lambda item: (-item["lead_score_value"], -item["event"].score),
+    )[:5]
     return templates.TemplateResponse(
         "company_detail.html",
         {
             "request": request,
             "company": company,
             "events": events_view,
+            "top_company_opportunities": top_company_opportunities,
             "recent_deltas": recent_deltas_view,
             "narrative": narrative,
         },
@@ -178,9 +192,16 @@ def event_detail(event_id: int, request: Request, db: Session = Depends(get_db))
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     delta = db.scalar(select(NarrativeDelta).where(NarrativeDelta.source_event_id == event_id))
+    lead_score = db.scalar(select(LeadScore).where(LeadScore.source_event_id == event_id))
     return templates.TemplateResponse(
         "event_detail.html",
-        {"request": request, "event": event, "delta": delta, "delta_view": _delta_to_view(delta)},
+        {
+            "request": request,
+            "event": event,
+            "delta": delta,
+            "delta_view": _delta_to_view(delta),
+            "lead_score_view": _lead_score_to_view(lead_score),
+        },
     )
 
 
@@ -195,6 +216,7 @@ def admin(request: Request, db: Session = Depends(get_db)):
     total_sources = int(db.scalar(select(func.count()).select_from(Source)) or 0)
     total_companies = int(db.scalar(select(func.count()).select_from(Company)) or 0)
     total_deltas = int(db.scalar(select(func.count()).select_from(NarrativeDelta)) or 0)
+    total_lead_scores = int(db.scalar(select(func.count()).select_from(LeadScore)) or 0)
     alert_deltas = int(
         db.scalar(select(func.count()).select_from(NarrativeDelta).where(NarrativeDelta.should_alert.is_(True))) or 0
     )
@@ -236,6 +258,7 @@ def admin(request: Request, db: Session = Depends(get_db)):
                 "total_sources": total_sources,
                 "total_companies": total_companies,
                 "total_deltas": total_deltas,
+                "total_lead_scores": total_lead_scores,
                 "alert_deltas": alert_deltas,
                 "fetch_errors": fetch_errors,
                 "extracted_sources": extracted_sources,
@@ -319,8 +342,30 @@ def _delta_to_view(delta: NarrativeDelta | None) -> dict | None:
     }
 
 
+def _lead_score_to_view(score: LeadScore | None) -> dict | None:
+    if score is None:
+        return None
+    components = [
+        {"label": "Lead", "value": score.lead_score},
+        {"label": "Change", "value": score.change_significance_score},
+        {"label": "Strength", "value": score.signal_strength_score},
+        {"label": "Recency", "value": score.recency_score},
+        {"label": "Reinforcement", "value": score.reinforcement_score},
+        {"label": "Thesis Fit", "value": score.thesis_fit_score},
+        {"label": "Source", "value": score.source_quality_score},
+    ]
+    if score.relationship_score > 0:
+        components.append({"label": "Relationship", "value": score.relationship_score})
+    return {
+        "lead_score": score.lead_score,
+        "components": components,
+        "explanation": score.explanation,
+    }
+
+
 def _event_card_view(event: SignalEvent) -> dict:
     delta_view = _delta_to_view(event.narrative_delta)
+    lead_score_view = _lead_score_to_view(event.lead_score)
     if delta_view is None:
         change_status = "standard"
     elif delta_view["should_alert"]:
@@ -330,5 +375,27 @@ def _event_card_view(event: SignalEvent) -> dict:
     return {
         "event": event,
         "delta_view": delta_view,
+        "lead_score_view": lead_score_view,
+        "lead_score_value": lead_score_view["lead_score"] if lead_score_view else 0.0,
         "change_status": change_status,
     }
+
+
+def _top_opportunities(db: Session, limit: int) -> list[dict]:
+    since = datetime.utcnow() - timedelta(days=7)
+    scores = db.scalars(
+        select(LeadScore)
+        .join(SignalEvent, LeadScore.source_event_id == SignalEvent.id)
+        .where(SignalEvent.created_at >= since)
+        .order_by(LeadScore.lead_score.desc(), SignalEvent.created_at.desc())
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "lead_score": _lead_score_to_view(score),
+            "event": score.source_event,
+            "company": score.company,
+            "delta_view": _delta_to_view(score.narrative_delta),
+        }
+        for score in scores
+    ]

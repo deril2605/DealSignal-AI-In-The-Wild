@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from dealsignal.models.signal_event import SignalEvent
+from dealsignal.pipeline.lead_score import evaluate_lead_score
 from dealsignal.pipeline.narrative import evaluate_narrative_delta
 from dealsignal.models.source import Source
 from dealsignal.pipeline.score import compute_signal_score
@@ -149,7 +150,8 @@ def extract_from_fetched_sources(session: Session) -> int:
             )
             session.add(event)
             session.flush()
-            evaluate_narrative_delta(session, event)
+            delta = evaluate_narrative_delta(session, event)
+            evaluate_lead_score(session, event, delta)
             created += 1
         source.status = "extracted"
 

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Top Opportunities</h1>
+  <p>Weekly ranked suggestions driven by change significance, signal strength, recency, reinforcement, thesis fit, and source quality.</p>
+</section>
+{% for item in opportunities %}
+<div class="card" style="background:#fffcf4;border-color:#f2d48b;">
+  <div class="row">
+    <div>
+      <a href="/companies/{{ item.company.id }}" style="text-decoration:none;color:inherit;"><strong>{{ item.company.name }}</strong></a>
+      <span class="pill">{{ item.event.signal_type }}</span>
+      {% if item.delta_view and item.delta_view["should_alert"] %}
+      <span class="pill alert-badge">ALERT</span>
+      {% elif item.delta_view %}
+      <span class="pill recorded-badge">RECORDED</span>
+      {% endif %}
+    </div>
+    <span class="score lead-score">Lead {{ item.lead_score["lead_score"] }}</span>
+  </div>
+  <p class="summary">{{ item.event.summary }}</p>
+  <p class="muted"><strong>Why ranked:</strong> {{ item.lead_score["explanation"] }}</p>
+  <div class="row" style="gap:6px;margin-top:8px;">
+    {% for component in item.lead_score["components"] %}
+    {% if component["label"] != "Lead" %}
+    <span class="pill">{{ component["label"] }} {{ component["value"] }}</span>
+    {% endif %}
+    {% endfor %}
+  </div>
+  <p class="actions" style="margin-top:10px;"><a href="/events/{{ item.event.id }}">Open event details</a></p>
+</div>
+{% else %}
+<div class="empty">No scored opportunities yet. Run the pipeline to populate v2 rankings.</div>
+{% endfor %}
+{% endblock %}
