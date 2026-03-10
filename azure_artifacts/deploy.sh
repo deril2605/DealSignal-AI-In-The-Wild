@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SERVE_DIR="$ROOT_DIR/serve"
+
 load_env_file() {
   local env_file="$1"
   if [[ ! -f "$env_file" ]]; then
@@ -13,8 +17,8 @@ load_env_file() {
   set +a
 }
 
-load_env_file ".env"
-load_env_file ".env.deploy"
+load_env_file "$ROOT_DIR/.env"
+load_env_file "$ROOT_DIR/.env.deploy"
 
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-dealsignal-prod}"
 LOCATION="${LOCATION:-eastus}"
@@ -186,7 +190,8 @@ log "Building and pushing image to ACR..."
 az acr build \
   --registry "$ACR_NAME" \
   --image "$IMAGE_NAME" \
-  .
+  --file "$SCRIPT_DIR/Dockerfile" \
+  "$SERVE_DIR"
 
 IMAGE_REF="${ACR_NAME}.azurecr.io/${IMAGE_NAME}"
 

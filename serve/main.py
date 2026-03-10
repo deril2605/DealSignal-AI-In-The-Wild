@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 from datetime import datetime
+from pathlib import Path
 from time import perf_counter
 
 import uvicorn
@@ -21,6 +22,7 @@ from dealsignal.pipeline.digest import generate_daily_digest
 from dealsignal.pipeline.discover import discover_sources, load_watchlist
 from dealsignal.pipeline.extract import extract_from_fetched_sources
 from dealsignal.pipeline.fetch import fetch_sources
+from dealsignal.state_sync import download_sqlite_from_blob
 
 logger = logging.getLogger("dealsignal.cli")
 
@@ -123,6 +125,8 @@ def run_pipeline() -> None:
 
 
 def serve() -> None:
+    # Pull latest persisted SQLite snapshot before starting local UI.
+    download_sqlite_from_blob(logger=logger)
     init_db()
     uvicorn.run("dealsignal.app.main:app", host="127.0.0.1", port=8000, reload=False)
 
@@ -179,6 +183,7 @@ def _count_failed_sources(session: Session) -> int:
 
 
 if __name__ == "__main__":
+    load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
     load_dotenv()
     configure_logging()
     args = parse_args()
