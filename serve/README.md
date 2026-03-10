@@ -1,111 +1,71 @@
-# DealSignal MVP
+# DealSignal Serve
 
-DealSignal is a sourcing pipeline that discovers public web content for watchlist companies, extracts strategic signals with Azure OpenAI, stores structured events, deduplicates them, scores them, and publishes a daily digest.
+DealSignal is a watchlist-driven sourcing pipeline plus local UI. It discovers public sources for target companies, fetches article text, extracts structured strategic signals with Azure OpenAI, deduplicates events, scores them, and stores the results in SQLite.
 
-## Architecture
+For `MVP v0`, the primary output is the structured event database and the UI. `reports/daily_digest.md` is generated as an internal artifact, not treated as a delivery channel.
 
-```text
-Watchlist YAML
-    |
-    v
-[Discover] --(TinyFish or Basic web provider)--> sources table
-    |
-    v
-[Fetch] --> raw article text in data/raw/{sha256}.txt
-    |
-    v
-[Extract + Dedup + Score] --(Azure OpenAI)--> signal_events table
-    |
-    v
-[Digest] --> reports/daily_digest.md
-    |
-    v
-FastAPI UI (/ , /companies , /companies/{id} , /events/{id})
-```
+## Current Structure
 
-## Project Layout
+The parent workspace is split into:
 
-This project is split at the parent level:
-
-- `../serve`: full local runtime (UI + pipeline + models + tests)
-- `../azure_artifacts`: ACA deployment/build assets
+- `../serve`: full local runtime
+- `../azure_artifacts`: Azure Container Apps build and deploy assets
 - `../.env`: shared environment variables
 
-`dealsignal/agents`: provider abstraction, TinyFish provider, fallback requests+BeautifulSoup provider  
-`dealsignal/pipeline`: discover, fetch, extract, score, digest  
-`dealsignal/models`: SQLAlchemy models and database session  
-`dealsignal/app`: FastAPI app and Jinja2 templates  
-`run_pipeline.py`: non-interactive batch entrypoint for scheduled job runs  
-`config/watchlist.yaml`: target company watchlist (supports `name`, `execs`, `themes`, `aliases`, `sector`)  
-`config/source_policy.yaml`: allow/block domain and strategic-term filtering for discovery  
-`data/raw`: raw article content archive  
-`reports/daily_digest.md`: top opportunities digest  
-`tests`: unit tests for score/fingerprint/dedup
+Within `serve/`:
+
+- `dealsignal/agents`: provider implementations
+- `dealsignal/pipeline`: discover, fetch, extract, score, digest
+- `dealsignal/models`: SQLAlchemy models and database setup
+- `dealsignal/app`: FastAPI app and templates
+- `config/watchlist.yaml`: watchlist definition
+- `config/source_policy.yaml`: source filtering policy
+- `data/raw`: local raw article cache
+- `reports/daily_digest.md`: generated digest artifact
+- `tests`: unit tests
 
 ## Requirements
 
 - Python 3.11+
+- `uv` recommended for local dependency management
 - Azure OpenAI deployment
-- Optional TinyFish key for primary browsing
+- TinyFish API key
+- Optional Azure Blob Storage for cross-run persistence
 
-## Setup
+## Local Setup
+
+Run from `serve/`:
 
 ```bash
 uv sync --dev
 ```
 
-Update `.env` in project root:
+Environment variables live in the parent `.env` file. `main.py` and `run_pipeline.py` load `../.env` automatically.
+
+Important variables:
 
 ```bash
 LLM_API_KEY=...
-LLM_BASE_URL=https://<your-azure-openai-resource>.openai.azure.com
-LLM_MODEL=<your-deployment-name>
+LLM_BASE_URL=https://<your-azure-openai-resource>.openai.azure.com/
+LLM_MODEL=<your-azure-deployment-name>
 LLM_API_VERSION=2024-02-15-preview
 
 TINYFISH_API_KEY=...
-TINYFISH_BASE_URL=https://api.tinyfish.ai
+TINYFISH_BASE_URL=https://agent.tinyfish.ai
+TINYFISH_MAX_AGENTS=2
+
+DATABASE_URL=sqlite:///./dealsignal.db
+
+BLOB_SYNC_ENABLED=true
+AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=<storage-account>;AccountKey=<storage-key>;EndpointSuffix=core.windows.net"
+BLOB_CONTAINER=dealsignal
+BLOB_DB_BLOB_NAME=state/dealsignal.db
+BLOB_RAW_PREFIX=raw
 ```
 
-If `TINYFISH_API_KEY` is missing, DealSignal automatically falls back to the basic provider.
+## Local UI
 
-Watchlist schema example:
-
-```yaml
-companies:
-  - name: Stripe
-    execs:
-      - Patrick Collison
-      - John Collison
-    themes:
-      - payments
-      - enterprise expansion
-      - strategic partnerships
-    aliases:
-      - Stripe Inc.
-    sector: Fintech
-```
-
-## Run Pipeline
-
-```bash
-uv run python main.py run-pipeline
-```
-
-or
-
-```bash
-python run_pipeline.py
-```
-
-This runs:
-1. discovery for watchlist companies
-2. fetch and text archival
-3. extraction with Azure OpenAI
-4. deduplication via event fingerprint
-5. scoring using confidence/strength/recency
-6. digest generation at `reports/daily_digest.md`
-
-## Start Web UI
+Run from `serve/`:
 
 ```bash
 uv run python main.py serve
@@ -113,151 +73,90 @@ uv run python main.py serve
 
 Open `http://127.0.0.1:8000`.
 
-## Test
+On startup, local `serve` pulls the latest SQLite snapshot from Blob when blob sync is configured.
+
+Available pages:
+
+- `/`: signal list and filters
+- `/companies`
+- `/companies/{id}`
+- `/events/{id}`
+- `/admin`: pipeline telemetry and ACA metadata
+
+## Pipeline Run
+
+Run from `serve/`:
 
 ```bash
-uv run pytest -q
+uv run python main.py run-pipeline
 ```
 
-## Run Overnight In Azure Container Apps Jobs
-
-This repo includes a containerized batch entrypoint and a deployment script for Azure Container Apps Jobs.
-
-### Files
-
-- `../azure_artifacts/Dockerfile`: packages the pipeline as a job container
-- `requirements.txt`: pinned Python dependencies for the image build
-- `.dockerignore`: keeps local state and secrets out of the build context
-- `../azure_artifacts/deploy.sh`: provisions Azure resources, pushes the image, and creates the scheduled job
-
-### How The Job Runs
-
-The container starts with:
+or:
 
 ```bash
 python run_pipeline.py
 ```
 
-The job is a finite batch workload. When the Python process exits, the container exits. That is the correct behavior for Azure Container Apps Jobs.
+Pipeline stages:
 
-### Schedule
+1. load watchlist
+2. discover candidate URLs
+3. fetch and archive raw text
+4. extract structured signals with Azure OpenAI
+5. dedupe by event fingerprint
+6. score events
+7. write digest artifact
 
-The deployment script configures a scheduled Container Apps Job with:
+## Persistence Model
 
-- trigger type: `Schedule`
-- cron expression: `0 1 * * *`
-- start time: `01:00 UTC` every day
-- timeout: `7200` seconds
-- cpu: `1`
-- memory: `2Gi`
-- parallelism: `1`
-- replica completion count: `1`
+Local and ACA share state through Azure Blob Storage when enabled.
 
-### Required Environment Variables
+Persisted today:
 
-Export these in your shell before running `../azure_artifacts/deploy.sh`.  
-The script automatically creates Container Apps job secrets and maps them to env vars.
+- SQLite database blob: `state/dealsignal.db`
+- raw fetched article blobs: `raw/<sha>.txt`
 
-```bash
-export LLM_API_KEY="..."
-export LLM_BASE_URL="https://<your-azure-openai-resource>.openai.azure.com/"
-export LLM_MODEL="<your-azure-deployment-name>"
-export TINYFISH_API_KEY="..."
+Not treated as persistent system-of-record output for `v0`:
 
-# Optional
-export LLM_API_VERSION="2024-02-15-preview"
-export TINYFISH_BASE_URL="https://agent.tinyfish.ai"
-export DATABASE_URL="sqlite:///./dealsignal.db"
-```
+- `reports/daily_digest.md`
 
-For production, prefer a persistent database over local SQLite.
+## Azure Container Apps Job
 
-### Deploy
+ACA assets live in `../azure_artifacts/`.
 
-Run from a bash shell:
+The ACA job:
 
-```bash
-chmod +x ../azure_artifacts/deploy.sh
-../azure_artifacts/deploy.sh
-```
+- builds from the `serve/` directory
+- runs `python run_pipeline.py`
+- persists DB state to Blob at the end of each run
+- uploads fetched raw text files to Blob
 
-If you are not already authenticated, the script runs:
+Default schedule is controlled by `CRON_EXPRESSION` in `.env`. ACA cron is interpreted in UTC.
+
+Deploy from the parent project root:
 
 ```bash
-az login --use-device-code
+chmod +x azure_artifacts/deploy.sh
+./azure_artifacts/deploy.sh
 ```
 
-You can pin a subscription without using the portal:
+Manual trigger:
 
 ```bash
-export AZURE_SUBSCRIPTION_ID="<subscription-guid>"
+az containerapp job start --name "$JOB_NAME" --resource-group "$RESOURCE_GROUP"
 ```
 
-You can override defaults:
+Stream logs:
 
 ```bash
-export RESOURCE_GROUP="rg-dealsignal-prod"
-export LOCATION="eastus"
-export ACR_NAME="dealsignalacr12345"
-export ENV_NAME="dealsignal-env"
-export JOB_NAME="dealsignal-nightly"
-export IMAGE_NAME="dealsignal-pipeline:latest"
-../azure_artifacts/deploy.sh
+EXEC=$(az containerapp job execution list --name "$JOB_NAME" --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv)
+az containerapp job logs show --name "$JOB_NAME" --resource-group "$RESOURCE_GROUP" --execution "$EXEC" --container pipeline --follow
 ```
 
-### Manual Trigger
+## Tests
+
+Run from `serve/`:
 
 ```bash
-az containerapp job start \
-  --name "$JOB_NAME" \
-  --resource-group "$RESOURCE_GROUP"
+uv run pytest -q
 ```
-
-### Inspect Executions
-
-```bash
-az containerapp job execution list \
-  --name "$JOB_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --output table \
-  --query '[].{Status: properties.status, Name: name, StartTime: properties.startTime}'
-```
-
-### View Logs
-
-```bash
-az containerapp job logs show \
-  --name "$JOB_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --container "pipeline" \
-  --tail 100
-```
-
-For a specific execution:
-
-```bash
-JOB_EXECUTION=$(az containerapp job execution list \
-  --name "$JOB_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --query "[0].name" \
-  --output tsv)
-
-az containerapp job logs show \
-  --name "$JOB_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --execution "$JOB_EXECUTION" \
-  --container "pipeline" \
-  --tail 200
-```
-
-### Monitoring
-
-The deployment script creates a Container Apps environment and scheduled job with managed identity.
-
-Recommended operational setup:
-
-- keep the pipeline idempotent so reruns do not duplicate data
-- log structured events to stdout/stderr
-- create Azure Monitor alerts for failed job executions
-- use managed identity for ACR pulls
-- keep credentials in Container Apps secrets, not in the image
