@@ -31,12 +31,14 @@ IDENTITY_NAME="${IDENTITY_NAME:-dealsignal-job-identity}"
 CONTAINER_NAME="${CONTAINER_NAME:-pipeline}"
 CRON_EXPRESSION="${CRON_EXPRESSION:-0 1 * * *}"
 AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID:-}"
+TINYFISH_MAX_AGENTS="${TINYFISH_MAX_AGENTS:-2}"
 
 # Container Apps Jobs schedules are evaluated in UTC.
 # 0 1 * * * = daily at 01:00 UTC.
 
 PIPELINE_ENV_VARS=(
   "PYTHONUNBUFFERED=1"
+  "TINYFISH_MAX_AGENTS=${TINYFISH_MAX_AGENTS}"
 )
 
 PIPELINE_SECRETS=()
@@ -202,6 +204,7 @@ build_secret_mapping
 append_optional_env "BLOB_SYNC_ENABLED"
 append_optional_env "BLOB_CONTAINER"
 append_optional_env "BLOB_DB_BLOB_NAME"
+append_optional_env "BLOB_RAW_PREFIX"
 
 if az containerapp job show --name "$JOB_NAME" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
   log "Replacing existing Container Apps job: $JOB_NAME"

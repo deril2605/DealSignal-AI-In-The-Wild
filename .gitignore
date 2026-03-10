@@ -26,6 +26,7 @@ htmlcov/
 *.db
 *.sqlite
 *.sqlite3
+serve/dealsignal.db
 data/raw/*.txt
 reports/daily_digest.md
 serve/data/raw/*.txt
