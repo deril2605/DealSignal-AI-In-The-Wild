@@ -26,4 +26,5 @@ class SignalEvent(Base):
 
     company = relationship("Company", back_populates="signal_events")
     source = relationship("Source", back_populates="signal_events")
+    narrative_delta = relationship("NarrativeDelta", back_populates="source_event", uselist=False)
 

@@ -14,6 +14,17 @@
   </div>
   <p class="summary"><strong>Summary:</strong> {{ event.summary }}</p>
   <p><strong>Evidence:</strong> {{ event.evidence_excerpt }}</p>
+  {% if delta %}
+  <div class="card" style="margin-top:12px;margin-bottom:12px;background:#f8fbff;">
+    <div class="row">
+      <strong>Change Detection</strong>
+      <span class="pill">{% if delta.should_alert %}ALERT{% else %}RECORDED{% endif %}</span>
+    </div>
+    <p class="muted" style="margin-top:8px;">{{ delta.reason }}</p>
+    <p class="muted">Significance: {{ delta.significance_score }}</p>
+    <pre>{{ delta.delta_payload }}</pre>
+  </div>
+  {% endif %}
   <div class="row">
     <span class="pill">Confidence {{ event.confidence }}</span>
     <span class="pill">Strength {{ event.strength }}</span>

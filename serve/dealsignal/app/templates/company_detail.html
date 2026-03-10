@@ -4,6 +4,40 @@
   <h1>{{ company.name }}</h1>
   <p>Signal timeline ordered by score for this company.</p>
 </section>
+{% if narrative %}
+<div class="card">
+  <div class="row">
+    <strong>Last Known Narrative</strong>
+    <span class="pill">Updated {{ narrative.updated_at.strftime('%Y-%m-%d') }}</span>
+  </div>
+  <p class="summary">{{ narrative.summary or "No summary stored yet." }}</p>
+  <p class="muted">
+    Geographies: {{ narrative.geographies|join(', ') if narrative.geographies else '-' }} |
+    Verticals: {{ narrative.verticals|join(', ') if narrative.verticals else '-' }} |
+    Themes: {{ narrative.themes|join(', ') if narrative.themes else '-' }}
+  </p>
+  <p class="muted">
+    Counterparties: {{ narrative.counterparties|join(', ') if narrative.counterparties else '-' }} |
+    Strategic phrases: {{ narrative.strategic_phrases|join(', ') if narrative.strategic_phrases else '-' }}
+  </p>
+</div>
+{% endif %}
+{% if recent_deltas %}
+<div class="card">
+  <strong>Recent Changes</strong>
+  <div style="margin-top:10px;">
+    {% for delta in recent_deltas %}
+    <div style="padding:10px 0;border-bottom:1px solid #eef3f8;">
+      <div class="row">
+        <span class="pill">{% if delta.should_alert %}ALERT{% else %}RECORDED{% endif %}</span>
+        <span class="score">Delta {{ delta.significance_score }}</span>
+      </div>
+      <p class="muted" style="margin:8px 0 0;">{{ delta.reason }}</p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 {% for event in events %}
 <div class="card">
   <div class="row">
@@ -15,6 +49,9 @@
   </div>
   <p class="summary">{{ event.summary }}</p>
   <p class="muted">Date: {{ event.created_at.strftime('%Y-%m-%d') }}</p>
+  {% if event.narrative_delta %}
+  <p class="muted"><strong>Change:</strong> {{ event.narrative_delta.reason }}</p>
+  {% endif %}
   <p class="muted mono">Source: <a href="{{ event.source.url }}" target="_blank">{{ event.source.url }}</a></p>
   <p class="actions"><a href="/events/{{ event.id }}">Open event details</a></p>
 </div>

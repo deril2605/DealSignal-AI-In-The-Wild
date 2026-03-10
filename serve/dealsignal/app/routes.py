@@ -9,7 +9,9 @@ from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
 
 from dealsignal.models.company import Company
+from dealsignal.models.company_narrative import CompanyNarrative
 from dealsignal.models.database import SessionLocal
+from dealsignal.models.narrative_delta import NarrativeDelta
 from dealsignal.models.pipeline_run import PipelineRun
 from dealsignal.models.signal_event import SignalEvent
 from dealsignal.models.source import Source
@@ -105,9 +107,16 @@ def company_detail(company_id: int, request: Request, db: Session = Depends(get_
         .order_by(SignalEvent.score.desc())
         .limit(100)
     ).all()
+    recent_deltas = db.scalars(
+        select(NarrativeDelta)
+        .where(NarrativeDelta.company_id == company_id)
+        .order_by(NarrativeDelta.created_at.desc())
+        .limit(10)
+    ).all()
+    narrative = db.scalar(select(CompanyNarrative).where(CompanyNarrative.company_id == company_id))
     return templates.TemplateResponse(
         "company_detail.html",
-        {"request": request, "company": company, "events": events},
+        {"request": request, "company": company, "events": events, "recent_deltas": recent_deltas, "narrative": narrative},
     )
 
 
@@ -116,7 +125,8 @@ def event_detail(event_id: int, request: Request, db: Session = Depends(get_db))
     event = db.get(SignalEvent, event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    return templates.TemplateResponse("event_detail.html", {"request": request, "event": event})
+    delta = db.scalar(select(NarrativeDelta).where(NarrativeDelta.source_event_id == event_id))
+    return templates.TemplateResponse("event_detail.html", {"request": request, "event": event, "delta": delta})
 
 
 @router.get("/admin")
@@ -129,6 +139,10 @@ def admin(request: Request, db: Session = Depends(get_db)):
     total_events = int(db.scalar(select(func.count()).select_from(SignalEvent)) or 0)
     total_sources = int(db.scalar(select(func.count()).select_from(Source)) or 0)
     total_companies = int(db.scalar(select(func.count()).select_from(Company)) or 0)
+    total_deltas = int(db.scalar(select(func.count()).select_from(NarrativeDelta)) or 0)
+    alert_deltas = int(
+        db.scalar(select(func.count()).select_from(NarrativeDelta).where(NarrativeDelta.should_alert.is_(True))) or 0
+    )
     fetch_errors = int(
         db.scalar(select(func.count()).select_from(Source).where(Source.status == "fetch_error")) or 0
     )
@@ -166,6 +180,8 @@ def admin(request: Request, db: Session = Depends(get_db)):
                 "total_events": total_events,
                 "total_sources": total_sources,
                 "total_companies": total_companies,
+                "total_deltas": total_deltas,
+                "alert_deltas": alert_deltas,
                 "fetch_errors": fetch_errors,
                 "extracted_sources": extracted_sources,
             },

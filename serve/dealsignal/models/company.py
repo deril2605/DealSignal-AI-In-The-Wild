@@ -19,4 +19,6 @@ class Company(Base):
 
     sources = relationship("Source", back_populates="company", cascade="all, delete-orphan")
     signal_events = relationship("SignalEvent", back_populates="company", cascade="all, delete-orphan")
+    narrative = relationship("CompanyNarrative", back_populates="company", uselist=False, cascade="all, delete-orphan")
+    narrative_deltas = relationship("NarrativeDelta", back_populates="company", cascade="all, delete-orphan")
 
