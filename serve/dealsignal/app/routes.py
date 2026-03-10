@@ -9,7 +9,9 @@ from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
 
 from dealsignal.models.company import Company
+from dealsignal.models.company_narrative import CompanyNarrative
 from dealsignal.models.database import SessionLocal
+from dealsignal.models.narrative_delta import NarrativeDelta
 from dealsignal.models.pipeline_run import PipelineRun
 from dealsignal.models.signal_event import SignalEvent
 from dealsignal.models.source import Source
@@ -33,6 +35,7 @@ def home(
     company_ids: list[int] | None = Query(default=None),
     company_filter_active: int | None = Query(default=None),
     signal_types: list[str] | None = Query(default=None),
+    change_statuses: list[str] | None = Query(default=None),
     min_score: float = Query(default=0.0),
     date_from: str | None = Query(default=None),
     db: Session = Depends(get_db),
@@ -46,6 +49,7 @@ def home(
         selected_company_ids = all_company_ids
 
     selected_signal_types = [s.strip() for s in (signal_types or []) if s and s.strip()]
+    selected_change_statuses = [s.strip().lower() for s in (change_statuses or []) if s and s.strip()]
     selected_min_score = max(0.0, min(100.0, float(min_score)))
     selected_date_from = (date_from or "").strip()
 
@@ -66,6 +70,18 @@ def home(
         stmt = stmt.where(SignalEvent.created_at >= parsed_from)
 
     events = db.scalars(stmt.order_by(SignalEvent.score.desc()).limit(100)).all()
+    event_cards = [_event_card_view(event) for event in events]
+    if selected_change_statuses:
+        event_cards = [card for card in event_cards if card["change_status"] in selected_change_statuses]
+    event_cards.sort(
+        key=lambda card: (
+            {"alert": 0, "recorded": 1, "standard": 2}.get(card["change_status"], 3),
+            -card["event"].score,
+        )
+    )
+    alert_count = sum(1 for card in event_cards if card["change_status"] == "alert")
+    recorded_count = sum(1 for card in event_cards if card["change_status"] == "recorded")
+    standard_count = sum(1 for card in event_cards if card["change_status"] == "standard")
     signal_type_options = db.scalars(
         select(SignalEvent.signal_type).distinct().order_by(SignalEvent.signal_type.asc())
     ).all()
@@ -76,14 +92,25 @@ def home(
         "index.html",
         {
             "request": request,
-            "events": events,
+            "events": event_cards,
             "latest_run": latest_run,
             "companies": companies,
             "signal_types": signal_type_options,
+            "change_status_options": [
+                {"value": "alert", "label": "Priority Alerts"},
+                {"value": "recorded", "label": "Recorded Changes"},
+                {"value": "standard", "label": "Standard Signals"},
+            ],
             "selected_company_ids": selected_company_ids,
             "selected_signal_types": selected_signal_types,
+            "selected_change_statuses": selected_change_statuses,
             "selected_min_score": selected_min_score,
             "selected_date_from": selected_date_from,
+            "feed_counts": {
+                "alert": alert_count,
+                "recorded": recorded_count,
+                "standard": standard_count,
+            },
         },
     )
 
@@ -105,9 +132,43 @@ def company_detail(company_id: int, request: Request, db: Session = Depends(get_
         .order_by(SignalEvent.score.desc())
         .limit(100)
     ).all()
+    recent_deltas = db.scalars(
+        select(NarrativeDelta)
+        .where(NarrativeDelta.company_id == company_id)
+        .order_by(NarrativeDelta.created_at.desc())
+        .limit(10)
+    ).all()
+    recent_deltas_view = [_delta_to_view(delta) for delta in recent_deltas]
+    recent_deltas_view.sort(
+        key=lambda item: (
+            0 if item and item["should_alert"] else 1,
+            -(item["significance_score"] if item else 0),
+        )
+    )
+    narrative = db.scalar(select(CompanyNarrative).where(CompanyNarrative.company_id == company_id))
+    events_view = [{"event": event, "delta_view": _delta_to_view(event.narrative_delta)} for event in events]
+    events_view.sort(
+        key=lambda item: (
+            {"alert": 0, "recorded": 1, "standard": 2}.get(
+                "alert"
+                if item["delta_view"] and item["delta_view"]["should_alert"]
+                else "recorded"
+                if item["delta_view"]
+                else "standard",
+                3,
+            ),
+            -item["event"].score,
+        )
+    )
     return templates.TemplateResponse(
         "company_detail.html",
-        {"request": request, "company": company, "events": events},
+        {
+            "request": request,
+            "company": company,
+            "events": events_view,
+            "recent_deltas": recent_deltas_view,
+            "narrative": narrative,
+        },
     )
 
 
@@ -116,7 +177,11 @@ def event_detail(event_id: int, request: Request, db: Session = Depends(get_db))
     event = db.get(SignalEvent, event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    return templates.TemplateResponse("event_detail.html", {"request": request, "event": event})
+    delta = db.scalar(select(NarrativeDelta).where(NarrativeDelta.source_event_id == event_id))
+    return templates.TemplateResponse(
+        "event_detail.html",
+        {"request": request, "event": event, "delta": delta, "delta_view": _delta_to_view(delta)},
+    )
 
 
 @router.get("/admin")
@@ -129,6 +194,10 @@ def admin(request: Request, db: Session = Depends(get_db)):
     total_events = int(db.scalar(select(func.count()).select_from(SignalEvent)) or 0)
     total_sources = int(db.scalar(select(func.count()).select_from(Source)) or 0)
     total_companies = int(db.scalar(select(func.count()).select_from(Company)) or 0)
+    total_deltas = int(db.scalar(select(func.count()).select_from(NarrativeDelta)) or 0)
+    alert_deltas = int(
+        db.scalar(select(func.count()).select_from(NarrativeDelta).where(NarrativeDelta.should_alert.is_(True))) or 0
+    )
     fetch_errors = int(
         db.scalar(select(func.count()).select_from(Source).where(Source.status == "fetch_error")) or 0
     )
@@ -166,6 +235,8 @@ def admin(request: Request, db: Session = Depends(get_db)):
                 "total_events": total_events,
                 "total_sources": total_sources,
                 "total_companies": total_companies,
+                "total_deltas": total_deltas,
+                "alert_deltas": alert_deltas,
                 "fetch_errors": fetch_errors,
                 "extracted_sources": extracted_sources,
             },
@@ -213,4 +284,51 @@ def _run_to_view(run: PipelineRun) -> dict:
         "error_message": run.error_message,
         "started_at_ist": _to_ist(run.started_at),
         "ended_at_ist": _to_ist(run.ended_at),
+    }
+
+
+def _delta_to_view(delta: NarrativeDelta | None) -> dict | None:
+    if delta is None:
+        return None
+
+    payload = delta.delta_payload or {}
+    labels = {
+        "new_geographies": "New Geography",
+        "new_verticals": "New Vertical",
+        "new_themes": "New Theme",
+        "new_counterparties": "New Counterparty",
+        "new_strategy_phrases": "New Strategy Language",
+    }
+    items = []
+    for key, label in labels.items():
+        values = payload.get(key) or []
+        if values:
+            items.append({"label": label, "values": values})
+
+    if items:
+        headline = "Alert-worthy change detected" if delta.should_alert else "Change recorded"
+    else:
+        headline = "No material change detected"
+
+    return {
+        "headline": headline,
+        "items": items,
+        "significance_score": delta.significance_score,
+        "should_alert": delta.should_alert,
+        "reason": delta.reason,
+    }
+
+
+def _event_card_view(event: SignalEvent) -> dict:
+    delta_view = _delta_to_view(event.narrative_delta)
+    if delta_view is None:
+        change_status = "standard"
+    elif delta_view["should_alert"]:
+        change_status = "alert"
+    else:
+        change_status = "recorded"
+    return {
+        "event": event,
+        "delta_view": delta_view,
+        "change_status": change_status,
     }

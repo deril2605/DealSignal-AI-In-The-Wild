@@ -18,6 +18,12 @@
       --line: #e7edf4;
       --good: #0d8f55;
       --chip: #ebf4ff;
+      --alert-bg: #fff1f0;
+      --alert-ink: #b42318;
+      --alert-line: #f4b4ae;
+      --recorded-bg: #eef6ff;
+      --recorded-ink: #0d4d7b;
+      --recorded-line: #cde0f5;
     }
     * { box-sizing: border-box; }
     body {
@@ -128,6 +134,24 @@
       font-weight: 800;
       font-size: 0.84rem;
       white-space: nowrap;
+    }
+    .alert-badge {
+      background: var(--alert-bg);
+      color: var(--alert-ink);
+      border-color: var(--alert-line);
+    }
+    .recorded-badge {
+      background: var(--recorded-bg);
+      color: var(--recorded-ink);
+      border-color: var(--recorded-line);
+    }
+    .alert-panel {
+      border-color: var(--alert-line);
+      background: #fff8f7;
+    }
+    .recorded-panel {
+      border-color: var(--recorded-line);
+      background: #f8fbff;
     }
     .muted { color: var(--muted); font-size: 0.88rem; }
     .summary { margin: 10px 0; line-height: 1.5; font-size: 0.94rem; }

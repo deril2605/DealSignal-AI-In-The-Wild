@@ -2,23 +2,148 @@
 {% block content %}
 <section class="hero">
   <h1>{{ company.name }}</h1>
-  <p>Signal timeline ordered by score for this company.</p>
+  <p>Signal timeline with current narrative state and recent change detection.</p>
 </section>
-{% for event in events %}
-<div class="card">
-  <div class="row">
-    <div>
-      <strong>{{ company.name }}</strong>
-      <span class="pill">{{ event.signal_type }}</span>
+<div style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,0.9fr);gap:16px;align-items:start;">
+  <section style="min-width:0;">
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <div>
+        <strong>Signal Feed</strong>
+        <p class="muted" style="margin:6px 0 0;">Ordered by score and annotated with change-detection context.</p>
+      </div>
+      <span class="pill">{{ events|length }} event{% if events|length != 1 %}s{% endif %}</span>
     </div>
-    <span class="score">Score {{ event.score }}</span>
-  </div>
-  <p class="summary">{{ event.summary }}</p>
-  <p class="muted">Date: {{ event.created_at.strftime('%Y-%m-%d') }}</p>
-  <p class="muted mono">Source: <a href="{{ event.source.url }}" target="_blank">{{ event.source.url }}</a></p>
-  <p class="actions"><a href="/events/{{ event.id }}">Open event details</a></p>
+    {% for item in events %}
+    <div class="card">
+      <div class="row">
+        <div>
+          <strong>{{ company.name }}</strong>
+          <span class="pill">{{ item.event.signal_type }}</span>
+        </div>
+        <span class="score">Score {{ item.event.score }}</span>
+      </div>
+      <p class="summary">{{ item.event.summary }}</p>
+      <p class="muted">Date: {{ item.event.created_at.strftime('%Y-%m-%d') }}</p>
+      {% if item.delta_view %}
+      <div class="{% if item.delta_view['should_alert'] %}alert-panel{% else %}recorded-panel{% endif %}" style="margin-top:10px;padding:10px 12px;border:1px solid;border-radius:12px;">
+        <div class="row">
+          <strong style="font-size:0.9rem;">{{ item.delta_view["headline"] }}</strong>
+          <span class="pill {% if item.delta_view['should_alert'] %}alert-badge{% else %}recorded-badge{% endif %}">{% if item.delta_view["should_alert"] %}ALERT{% else %}RECORDED{% endif %}</span>
+        </div>
+        {% for change in item.delta_view["items"] %}
+        <p class="muted" style="margin:8px 0 0;">
+          <strong>{{ change["label"] }}:</strong> {{ change["values"]|join(', ') }}
+        </p>
+        {% endfor %}
+        <p class="muted" style="margin:8px 0 0;">Significance: {{ item.delta_view["significance_score"] }}</p>
+      </div>
+      {% endif %}
+      <p class="muted mono">Source: <a href="{{ item.event.source.url }}" target="_blank">{{ item.event.source.url }}</a></p>
+      <p class="actions"><a href="/events/{{ item.event.id }}">Open event details</a></p>
+    </div>
+    {% else %}
+    <div class="empty">No signals for this company.</div>
+    {% endfor %}
+  </section>
+
+  <aside style="position:sticky;top:78px;min-width:0;">
+    {% if narrative %}
+    <div class="card" style="overflow-wrap:anywhere;">
+      <div class="row">
+        <strong>Last Known Narrative</strong>
+        <span class="pill">Updated {{ narrative.updated_at.strftime('%Y-%m-%d') }}</span>
+      </div>
+      <p class="summary">{{ narrative.summary or "No summary stored yet." }}</p>
+
+      <div style="display:grid;gap:10px;min-width:0;">
+        <div>
+          <div class="muted" style="margin-bottom:6px;"><strong>Geographies</strong></div>
+          {% if narrative.geographies %}
+            {% for item in narrative.geographies %}
+            <span class="pill" style="margin-right:6px;margin-bottom:6px;">{{ item }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="muted">None yet.</span>
+          {% endif %}
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;"><strong>Verticals</strong></div>
+          {% if narrative.verticals %}
+            {% for item in narrative.verticals %}
+            <span class="pill" style="margin-right:6px;margin-bottom:6px;">{{ item }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="muted">None yet.</span>
+          {% endif %}
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;"><strong>Themes</strong></div>
+          {% if narrative.themes %}
+            {% for item in narrative.themes %}
+            <span class="pill" style="margin-right:6px;margin-bottom:6px;">{{ item }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="muted">None yet.</span>
+          {% endif %}
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;"><strong>Counterparties</strong></div>
+          {% if narrative.counterparties %}
+            {% for item in narrative.counterparties %}
+            <span class="pill" style="margin-right:6px;margin-bottom:6px;">{{ item }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="muted">None yet.</span>
+          {% endif %}
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;"><strong>Strategic Phrases</strong></div>
+          {% if narrative.strategic_phrases %}
+            {% for item in narrative.strategic_phrases %}
+            <span class="pill" style="margin-right:6px;margin-bottom:6px;">{{ item }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="muted">None yet.</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="row">
+        <strong>Last Known Narrative</strong>
+        <span class="pill recorded-badge">PENDING</span>
+      </div>
+      <p class="muted" style="margin-top:10px;">
+        No narrative snapshot yet. This usually means no qualifying `v1` event has been processed for this company yet.
+      </p>
+    </div>
+    {% endif %}
+
+    {% if recent_deltas %}
+    <div class="card" style="overflow-wrap:anywhere;">
+      <div class="row">
+        <strong>Recent Changes</strong>
+        <span class="pill">{{ recent_deltas|length }} tracked</span>
+      </div>
+      <div style="margin-top:8px;display:grid;gap:10px;max-height:70vh;overflow-y:auto;overflow-x:hidden;padding-right:4px;">
+        {% for delta in recent_deltas %}
+        <div style="padding:10px 0;border-bottom:1px solid #eef3f8;overflow-wrap:anywhere;">
+          <div class="row">
+        <span class="pill {% if delta['should_alert'] %}alert-badge{% else %}recorded-badge{% endif %}">{% if delta["should_alert"] %}ALERT{% else %}RECORDED{% endif %}</span>
+        <span class="score">Delta {{ delta["significance_score"] }}</span>
+          </div>
+          <p class="muted" style="margin:8px 0 0;"><strong>{{ delta["headline"] }}</strong></p>
+          {% for change in delta["items"] %}
+          <p class="muted" style="margin:6px 0 0;">
+            <strong>{{ change["label"] }}:</strong> {{ change["values"]|join(', ') }}
+          </p>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </aside>
 </div>
-{% else %}
-<div class="empty">No signals for this company.</div>
-{% endfor %}
 {% endblock %}

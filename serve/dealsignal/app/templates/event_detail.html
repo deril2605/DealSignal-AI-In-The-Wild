@@ -14,6 +14,21 @@
   </div>
   <p class="summary"><strong>Summary:</strong> {{ event.summary }}</p>
   <p><strong>Evidence:</strong> {{ event.evidence_excerpt }}</p>
+  {% if delta_view %}
+  <div class="card {% if delta_view['should_alert'] %}alert-panel{% else %}recorded-panel{% endif %}" style="margin-top:12px;margin-bottom:12px;border:1px solid;">
+    <div class="row">
+      <strong>{{ delta_view["headline"] }}</strong>
+      <span class="pill {% if delta_view['should_alert'] %}alert-badge{% else %}recorded-badge{% endif %}">{% if delta_view["should_alert"] %}ALERT{% else %}RECORDED{% endif %}</span>
+    </div>
+    {% for change in delta_view["items"] %}
+    <p class="muted" style="margin-top:8px;">
+      <strong>{{ change["label"] }}:</strong> {{ change["values"]|join(', ') }}
+    </p>
+    {% endfor %}
+    <p class="muted">Significance: {{ delta_view["significance_score"] }}</p>
+    <pre>{{ delta.delta_payload }}</pre>
+  </div>
+  {% endif %}
   <div class="row">
     <span class="pill">Confidence {{ event.confidence }}</span>
     <span class="pill">Strength {{ event.strength }}</span>

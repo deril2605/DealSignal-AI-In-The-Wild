@@ -16,7 +16,7 @@ Base = declarative_base()
 
 
 def init_db() -> None:
-    from dealsignal.models import company, pipeline_run, signal_event, source  # noqa: F401
+    from dealsignal.models import company, company_narrative, narrative_delta, pipeline_run, signal_event, source  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 

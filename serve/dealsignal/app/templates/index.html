@@ -2,7 +2,12 @@
 {% block content %}
 <section class="hero">
   <h1>Top Strategic Signals</h1>
-  <p>Highest-scoring opportunities across your monitored sources.</p>
+  <p>Priority alerts surface first, followed by recorded changes and standard signals.</p>
+  <p class="muted" style="margin-top:8px;">
+    Alerts: {{ feed_counts.alert }} |
+    Recorded: {{ feed_counts.recorded }} |
+    Standard: {{ feed_counts.standard }}
+  </p>
   <p style="margin-top:10px;">
     <a href="/admin" style="display:inline-block;background:#ffffff;color:#0e4a75;padding:8px 12px;border-radius:999px;text-decoration:none;font-weight:800;">
       Open Admin
@@ -38,6 +43,15 @@
         </label>
         {% endfor %}
       </div>
+      <label class="muted"><strong>Change Status</strong></label>
+      <div class="filter-list">
+        {% for option in change_status_options %}
+        <label class="filter-item">
+          <input type="checkbox" name="change_statuses" value="{{ option.value }}" {% if option.value in selected_change_statuses|default([], true) %}checked{% endif %}>
+          <span>{{ option.label }}</span>
+        </label>
+        {% endfor %}
+      </div>
       <label class="muted"><strong>Minimum Score</strong></label>
       <div style="margin-top:6px;margin-bottom:12px;">
         <input
@@ -64,19 +78,34 @@
   </aside>
 
   <section>
-    {% for event in events %}
-    <div class="card">
+    {% for item in events %}
+    <div class="card {% if item.change_status == 'alert' %}alert-panel{% elif item.change_status == 'recorded' %}recorded-panel{% endif %}" style="{% if item.change_status != 'standard' %}border:1px solid;{% endif %}">
       <div class="row">
         <div>
-          <strong>{{ event.company.name }}</strong>
-          <span class="pill">{{ event.signal_type }}</span>
+          <a href="/companies/{{ item.event.company.id }}" style="text-decoration:none;color:inherit;"><strong>{{ item.event.company.name }}</strong></a>
+          <span class="pill">{{ item.event.signal_type }}</span>
+          {% if item.change_status == 'alert' %}
+          <span class="pill alert-badge">PRIORITY ALERT</span>
+          {% elif item.change_status == 'recorded' %}
+          <span class="pill recorded-badge">RECORDED CHANGE</span>
+          {% else %}
+          <span class="pill">STANDARD</span>
+          {% endif %}
         </div>
-        <span class="score">Score {{ event.score }}</span>
+        <span class="score">Score {{ item.event.score }}</span>
       </div>
-      <p class="summary">{{ event.summary }}</p>
-      <p class="muted">Date: {{ event.created_at.strftime('%Y-%m-%d') }}</p>
-      <p class="muted mono">Source: <a href="{{ event.source.url }}" target="_blank">{{ event.source.url }}</a></p>
-      <p class="actions"><a href="/events/{{ event.id }}">Open event details</a></p>
+      <p class="summary">{{ item.event.summary }}</p>
+      <p class="muted">Date: {{ item.event.created_at.strftime('%Y-%m-%d') }}</p>
+      {% if item.delta_view %}
+      <p class="muted">
+        <strong>{{ item.delta_view["headline"] }}:</strong>
+        {% for change in item.delta_view["items"] %}
+        {{ change["label"] }}={{ change["values"]|join(', ') }}{% if not loop.last %} | {% endif %}
+        {% endfor %}
+      </p>
+      {% endif %}
+      <p class="muted mono">Source: <a href="{{ item.event.source.url }}" target="_blank">{{ item.event.source.url }}</a></p>
+      <p class="actions"><a href="/events/{{ item.event.id }}">Open event details</a></p>
     </div>
     {% else %}
     <div class="empty">No events found for current filter selection.</div>

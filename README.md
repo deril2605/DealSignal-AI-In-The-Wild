@@ -28,6 +28,33 @@ chmod +x azure_artifacts/deploy.sh
 
 The ACA job builds from `serve/` and runs `python run_pipeline.py`.
 
+## ACA Ops Commands
+
+Manual trigger:
+
+```bash
+az containerapp job start --name dealsignal-nightly --resource-group rg-dealsignal-prod
+```
+
+Latest execution name:
+
+```bash
+EXEC=$(az containerapp job execution list --name dealsignal-nightly --resource-group rg-dealsignal-prod --query "[0].name" -o tsv)
+```
+
+Stream logs for latest execution:
+
+```bash
+EXEC=$(az containerapp job execution list --name dealsignal-nightly --resource-group rg-dealsignal-prod --query "[0].name" -o tsv)
+az containerapp job logs show --name dealsignal-nightly --resource-group rg-dealsignal-prod --execution "$EXEC" --container pipeline --follow
+```
+
+List executions:
+
+```bash
+az containerapp job execution list --name dealsignal-nightly --resource-group rg-dealsignal-prod --output table
+```
+
 ## Shared State
 
 When blob sync is enabled in `.env`, the system persists:
