@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Admin Console</h1>
+  <p>Pipeline health, ACA configuration details, and operational shortcuts.</p>
+  <p class="muted" style="margin-top:8px;">Displayed timezone: {{ timezone_label }}</p>
+</section>
+
+<div class="card">
+  <div class="row">
+    <strong>Last Pipeline Run</strong>
+    {% if latest_run %}
+    <span class="pill">{{ latest_run.status|upper }}</span>
+    {% else %}
+    <span class="pill">NO RUNS</span>
+    {% endif %}
+  </div>
+  {% if latest_run %}
+  <p class="muted" style="margin-top:8px;">
+    Started: {{ latest_run.started_at_ist }} |
+    Ended: {{ latest_run.ended_at_ist }} |
+    Provider: {{ latest_run.provider or "-" }}
+  </p>
+  <p class="muted">
+    Watchlist: {{ latest_run.watchlist_count }} |
+    Discovered: {{ latest_run.discovered_count }} |
+    Fetched: {{ latest_run.fetched_count }} |
+    Extracted: {{ latest_run.extracted_count }} |
+    Failed: {{ latest_run.failed_count }}
+  </p>
+  {% if latest_run.stage_seconds %}
+  <p class="muted mono">
+    Stage seconds:
+    discover={{ latest_run.stage_seconds.get('discover', 0) }},
+    fetch={{ latest_run.stage_seconds.get('fetch', 0) }},
+    extract={{ latest_run.stage_seconds.get('extract', 0) }},
+    digest={{ latest_run.stage_seconds.get('digest', 0) }}
+  </p>
+  {% endif %}
+  {% if latest_run.error_message %}
+  <pre>{{ latest_run.error_message }}</pre>
+  {% endif %}
+  {% endif %}
+</div>
+
+<div class="card">
+  <strong>Last 5 Runs</strong>
+  <div style="overflow:auto;margin-top:10px;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.88rem;">
+      <thead>
+        <tr style="text-align:left;border-bottom:1px solid #e7edf4;">
+          <th style="padding:8px 6px;">Started</th>
+          <th style="padding:8px 6px;">Status</th>
+          <th style="padding:8px 6px;">Discovered</th>
+          <th style="padding:8px 6px;">Fetched</th>
+          <th style="padding:8px 6px;">Extracted</th>
+          <th style="padding:8px 6px;">Failed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in recent_runs %}
+        <tr style="border-bottom:1px solid #f0f4f9;">
+          <td style="padding:8px 6px;" class="mono">{{ run.started_at_ist }}</td>
+          <td style="padding:8px 6px;"><span class="pill">{{ run.status|upper }}</span></td>
+          <td style="padding:8px 6px;">{{ run.discovered_count }}</td>
+          <td style="padding:8px 6px;">{{ run.fetched_count }}</td>
+          <td style="padding:8px 6px;">{{ run.extracted_count }}</td>
+          <td style="padding:8px 6px;">{{ run.failed_count }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" style="padding:10px 6px;" class="muted">No runs recorded yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <strong>Pipeline Metrics</strong>
+  <p class="muted" style="margin-top:8px;">
+    Total runs: {{ metrics.total_runs }} |
+    Total companies: {{ metrics.total_companies }} |
+    Total sources: {{ metrics.total_sources }} |
+    Total extracted sources: {{ metrics.extracted_sources }} |
+    Fetch errors: {{ metrics.fetch_errors }} |
+    Total signal events: {{ metrics.total_events }}
+  </p>
+</div>
+
+<div class="card">
+  <strong>ACA Configuration</strong>
+  <p class="muted mono" style="margin-top:8px;">
+    Cron (UTC): {{ cron_expression }}<br>
+    Subscription: {{ azure_meta.subscription_id or "-" }}<br>
+    Resource Group: {{ azure_meta.resource_group }}<br>
+    Environment: {{ azure_meta.environment }}<br>
+    Job: {{ azure_meta.job_name }}<br>
+    Region: {{ azure_meta.location }}<br>
+    ACR: {{ azure_meta.acr_name }}<br>
+    Image: {{ azure_meta.image_name }}
+  </p>
+  {% if azure_meta.portal_job_url %}
+  <p class="actions"><a href="{{ azure_meta.portal_job_url }}" target="_blank">Open ACA Job in Azure Portal</a></p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <strong>Quick Ops Commands</strong>
+  <pre>az containerapp job start --name {{ azure_meta.job_name }} --resource-group {{ azure_meta.resource_group }}
+az containerapp job execution list --name {{ azure_meta.job_name }} --resource-group {{ azure_meta.resource_group }} --output table
+az containerapp job logs show --name {{ azure_meta.job_name }} --resource-group {{ azure_meta.resource_group }} --container pipeline --tail 100</pre>
+</div>
+{% endblock %}

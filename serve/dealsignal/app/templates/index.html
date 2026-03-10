@@ -3,6 +3,11 @@
 <section class="hero">
   <h1>Top Strategic Signals</h1>
   <p>Highest-scoring opportunities across your monitored sources.</p>
+  <p style="margin-top:10px;">
+    <a href="/admin" style="display:inline-block;background:#ffffff;color:#0e4a75;padding:8px 12px;border-radius:999px;text-decoration:none;font-weight:800;">
+      Open Admin
+    </a>
+  </p>
 </section>
 <div style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start;">
   <aside class="card" style="position:sticky;top:78px;">
@@ -78,31 +83,6 @@
     {% endfor %}
   </section>
 </div>
-{% if latest_run %}
-<details class="card">
-  <summary><strong>Pipeline Health</strong> <span class="pill">{{ latest_run.status|upper }}</span></summary>
-  <p class="muted" style="margin-top:10px;">
-    Provider: {{ latest_run.provider }} |
-    Watchlist: {{ latest_run.watchlist_count }} |
-    Discovered: {{ latest_run.discovered_count }} |
-    Fetched: {{ latest_run.fetched_count }} |
-    Extracted: {{ latest_run.extracted_count }} |
-    Failed: {{ latest_run.failed_count }}
-  </p>
-  {% if latest_run.stage_seconds %}
-  <p class="muted mono">
-    Stage seconds:
-    discover={{ latest_run.stage_seconds.get('discover', 0) }},
-    fetch={{ latest_run.stage_seconds.get('fetch', 0) }},
-    extract={{ latest_run.stage_seconds.get('extract', 0) }},
-    digest={{ latest_run.stage_seconds.get('digest', 0) }}
-  </p>
-  {% endif %}
-  {% if latest_run.error_message %}
-  <p class="muted"><strong>Error:</strong> {{ latest_run.error_message }}</p>
-  {% endif %}
-</details>
-{% endif %}
 <script>
   function toggleCompanyChecks(checked) {
     const boxes = document.querySelectorAll('.company-check');

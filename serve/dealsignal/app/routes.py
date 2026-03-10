@@ -1,19 +1,22 @@
 from __future__ import annotations
 
-from datetime import datetime
+import os
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import false, select
+from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
 
 from dealsignal.models.company import Company
 from dealsignal.models.database import SessionLocal
 from dealsignal.models.pipeline_run import PipelineRun
 from dealsignal.models.signal_event import SignalEvent
+from dealsignal.models.source import Source
 
 router = APIRouter()
 templates = Jinja2Templates(directory="dealsignal/app/templates")
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def get_db():
@@ -116,6 +119,60 @@ def event_detail(event_id: int, request: Request, db: Session = Depends(get_db))
     return templates.TemplateResponse("event_detail.html", {"request": request, "event": event})
 
 
+@router.get("/admin")
+def admin(request: Request, db: Session = Depends(get_db)):
+    recent_runs = db.scalars(select(PipelineRun).order_by(PipelineRun.started_at.desc()).limit(5)).all()
+    latest_run = recent_runs[0] if recent_runs else None
+    latest_run_view = _run_to_view(latest_run) if latest_run else None
+    recent_runs_view = [_run_to_view(run) for run in recent_runs]
+    total_runs = int(db.scalar(select(func.count()).select_from(PipelineRun)) or 0)
+    total_events = int(db.scalar(select(func.count()).select_from(SignalEvent)) or 0)
+    total_sources = int(db.scalar(select(func.count()).select_from(Source)) or 0)
+    total_companies = int(db.scalar(select(func.count()).select_from(Company)) or 0)
+    fetch_errors = int(
+        db.scalar(select(func.count()).select_from(Source).where(Source.status == "fetch_error")) or 0
+    )
+    extracted_sources = int(
+        db.scalar(select(func.count()).select_from(Source).where(Source.status == "extracted")) or 0
+    )
+
+    cron_expression = os.getenv("CRON_EXPRESSION", "0 1 * * *")
+    azure_meta = {
+        "subscription_id": os.getenv("AZURE_SUBSCRIPTION_ID", ""),
+        "resource_group": os.getenv("RESOURCE_GROUP", "rg-dealsignal-prod"),
+        "environment": os.getenv("ENV_NAME", "dealsignal-env"),
+        "job_name": os.getenv("JOB_NAME", "dealsignal-nightly"),
+        "acr_name": os.getenv("ACR_NAME", "dealsignalacr12345"),
+        "image_name": os.getenv("IMAGE_NAME", "dealsignal-pipeline:latest"),
+        "location": os.getenv("LOCATION", "eastus"),
+    }
+    azure_meta["portal_job_url"] = _portal_job_url(
+        subscription_id=azure_meta["subscription_id"],
+        resource_group=azure_meta["resource_group"],
+        job_name=azure_meta["job_name"],
+    )
+
+    return templates.TemplateResponse(
+        "admin.html",
+        {
+            "request": request,
+            "latest_run": latest_run_view,
+            "recent_runs": recent_runs_view,
+            "cron_expression": cron_expression,
+            "azure_meta": azure_meta,
+            "timezone_label": "IST (UTC+05:30)",
+            "metrics": {
+                "total_runs": total_runs,
+                "total_events": total_events,
+                "total_sources": total_sources,
+                "total_companies": total_companies,
+                "fetch_errors": fetch_errors,
+                "extracted_sources": extracted_sources,
+            },
+        },
+    )
+
+
 def _parse_date(value: str) -> datetime | None:
     if not value:
         return None
@@ -123,3 +180,37 @@ def _parse_date(value: str) -> datetime | None:
         return datetime.strptime(value, "%Y-%m-%d")
     except ValueError:
         return None
+
+
+def _portal_job_url(subscription_id: str, resource_group: str, job_name: str) -> str:
+    if not subscription_id or not resource_group or not job_name:
+        return ""
+    return (
+        "https://portal.azure.com/#@/resource/subscriptions/"
+        f"{subscription_id}/resourceGroups/{resource_group}"
+        f"/providers/Microsoft.App/jobs/{job_name}/overview"
+    )
+
+
+def _to_ist(dt: datetime | None) -> str:
+    if dt is None:
+        return "-"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(IST).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _run_to_view(run: PipelineRun) -> dict:
+    return {
+        "status": run.status,
+        "provider": run.provider,
+        "watchlist_count": run.watchlist_count,
+        "discovered_count": run.discovered_count,
+        "fetched_count": run.fetched_count,
+        "extracted_count": run.extracted_count,
+        "failed_count": run.failed_count,
+        "stage_seconds": run.stage_seconds or {},
+        "error_message": run.error_message,
+        "started_at_ist": _to_ist(run.started_at),
+        "ended_at_ist": _to_ist(run.ended_at),
+    }
