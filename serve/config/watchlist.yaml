@@ -1,0 +1,56 @@
+companies:
+  - name: Stripe
+    execs:
+      - Patrick Collison
+      - John Collison
+    themes:
+      - payments
+      - enterprise expansion
+      - strategic partnerships
+    aliases:
+      - Stripe Inc.
+    sector: Fintech
+  - name: Datadog
+    execs:
+      - Olivier Pomel
+      - David Obstler
+    themes:
+      - cloud security
+      - observability platform expansion
+      - enterprise partnerships
+    aliases:
+      - Datadog Inc.
+    sector: Cloud Software
+  - name: Snowflake
+    execs:
+      - Sridhar Ramaswamy
+      - Benoit Dageville
+    themes:
+      - data platform expansion
+      - AI product strategy
+      - ecosystem partnerships
+    aliases:
+      - Snowflake Inc.
+    sector: Data Infrastructure
+  - name: HubSpot
+    execs:
+      - Yamini Rangan
+      - Brian Halligan
+    themes:
+      - SMB expansion
+      - partner ecosystem
+      - product bundling strategy
+    aliases:
+      - HubSpot Inc.
+    sector: SaaS
+  - name: ServiceNow
+    execs:
+      - Bill McDermott
+      - CJ Desai
+    themes:
+      - enterprise automation
+      - strategic partnerships
+      - AI workflow expansion
+    aliases:
+      - ServiceNow Inc.
+    sector: Enterprise Software

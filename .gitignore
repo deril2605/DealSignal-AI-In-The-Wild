@@ -26,12 +26,14 @@ htmlcov/
 *.db
 *.sqlite
 *.sqlite3
+serve/dealsignal.db
 data/raw/*.txt
 reports/daily_digest.md
+serve/data/raw/*.txt
+serve/reports/daily_digest.md
 
 # OS/editor files
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-

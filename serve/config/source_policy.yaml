@@ -1,0 +1,34 @@
+allow_domains:
+  - reuters.com
+  - bloomberg.com
+  - ft.com
+  - wsj.com
+  - techcrunch.com
+  - theinformation.com
+  - cnbc.com
+  - sec.gov
+  - prnewswire.com
+  - businesswire.com
+
+blocked_domains:
+  - newsbreak.com
+  - nomadwayhome.com
+  - pinterest.com
+  - facebook.com
+  - instagram.com
+  - tiktok.com
+
+strategic_terms:
+  - expansion
+  - fundraising
+  - funding
+  - round
+  - acquisition
+  - acquire
+  - merger
+  - partnership
+  - strategy
+  - hiring
+  - leadership
+  - regulatory
+

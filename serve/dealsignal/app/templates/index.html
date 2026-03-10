@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Top Strategic Signals</h1>
+  <p>Highest-scoring opportunities across your monitored sources.</p>
+  <p style="margin-top:10px;">
+    <a href="/admin" style="display:inline-block;background:#ffffff;color:#0e4a75;padding:8px 12px;border-radius:999px;text-decoration:none;font-weight:800;">
+      Open Admin
+    </a>
+  </p>
+</section>
+<div style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start;">
+  <aside class="card" style="position:sticky;top:78px;">
+    <form method="get" action="/">
+      <input type="hidden" name="company_filter_active" value="1">
+      <div class="row" style="margin-bottom:8px;">
+        <strong>Filters</strong>
+      </div>
+      <label class="muted"><strong>Companies</strong></label>
+      <div class="row" style="margin-top:6px;margin-bottom:6px;">
+        <button type="button" onclick="toggleCompanyChecks(true)">Select all</button>
+        <button type="button" onclick="toggleCompanyChecks(false)">Deselect all</button>
+      </div>
+      <div class="filter-list">
+        {% for company in companies %}
+        <label class="filter-item">
+          <input type="checkbox" class="company-check" name="company_ids" value="{{ company.id }}" {% if company.id in selected_company_ids|default([], true) %}checked{% endif %}>
+          <span>{{ company.name }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <label class="muted"><strong>Signals</strong></label>
+      <div class="filter-list">
+        {% for s in signal_types %}
+        <label class="filter-item">
+          <input type="checkbox" name="signal_types" value="{{ s }}" {% if s in selected_signal_types|default([], true) %}checked{% endif %}>
+          <span>{{ s }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <label class="muted"><strong>Minimum Score</strong></label>
+      <div style="margin-top:6px;margin-bottom:12px;">
+        <input
+          type="range"
+          id="min_score"
+          name="min_score"
+          min="0"
+          max="100"
+          step="1"
+          value="{{ selected_min_score|default(0, true)|int }}"
+          oninput="document.getElementById('min-score-value').textContent = this.value"
+          style="width:100%;"
+        >
+        <div class="muted">Threshold: <strong id="min-score-value">{{ selected_min_score|default(0, true)|int }}</strong></div>
+      </div>
+      <label class="muted"><strong>Date From</strong></label>
+      <input type="date" name="date_from" value="{{ selected_date_from|default('', true) }}" style="width:100%;margin-top:6px;margin-bottom:10px;">
+      <div class="row">
+        <button type="submit">Apply</button>
+        <a href="/" class="actions">Reset</a>
+      </div>
+      <p class="muted" style="margin-top:10px;">Select any combination and click Apply.</p>
+    </form>
+  </aside>
+
+  <section>
+    {% for event in events %}
+    <div class="card">
+      <div class="row">
+        <div>
+          <strong>{{ event.company.name }}</strong>
+          <span class="pill">{{ event.signal_type }}</span>
+        </div>
+        <span class="score">Score {{ event.score }}</span>
+      </div>
+      <p class="summary">{{ event.summary }}</p>
+      <p class="muted">Date: {{ event.created_at.strftime('%Y-%m-%d') }}</p>
+      <p class="muted mono">Source: <a href="{{ event.source.url }}" target="_blank">{{ event.source.url }}</a></p>
+      <p class="actions"><a href="/events/{{ event.id }}">Open event details</a></p>
+    </div>
+    {% else %}
+    <div class="empty">No events found for current filter selection.</div>
+    {% endfor %}
+  </section>
+</div>
+<script>
+  function toggleCompanyChecks(checked) {
+    const boxes = document.querySelectorAll('.company-check');
+    boxes.forEach((box) => {
+      box.checked = checked;
+    });
+  }
+</script>
+{% endblock %}

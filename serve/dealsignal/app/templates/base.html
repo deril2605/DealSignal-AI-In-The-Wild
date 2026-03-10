@@ -137,6 +137,45 @@
       font-weight: 700;
       font-size: 0.88rem;
     }
+    select, button {
+      border: 1px solid #cdd8e5;
+      border-radius: 10px;
+      padding: 7px 10px;
+      font: inherit;
+      font-size: 0.88rem;
+      background: #fff;
+      color: var(--ink);
+    }
+    button {
+      background: #0d4d7b;
+      border-color: #0d4d7b;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0b3f66;
+    }
+    .filter-list {
+      max-height: 220px;
+      overflow: auto;
+      border: 1px solid #dce5ef;
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 6px 8px;
+      margin-top: 6px;
+      margin-bottom: 10px;
+    }
+    .filter-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 0.88rem;
+    }
+    .filter-item input[type="checkbox"] {
+      accent-color: #0d4d7b;
+    }
     .mono {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 0.8rem;
@@ -176,6 +215,7 @@
       <nav>
         <a href="/">Signals</a>
         <a href="/companies">Companies</a>
+        <a href="/admin">Admin</a>
       </nav>
     </div>
   </header>
