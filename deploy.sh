@@ -133,7 +133,7 @@ grant_acr_pull() {
 
 build_secret_mapping() {
   local required_vars=("LLM_API_KEY" "LLM_BASE_URL" "LLM_MODEL" "TINYFISH_API_KEY")
-  local optional_vars=("LLM_API_VERSION" "TINYFISH_BASE_URL" "DATABASE_URL")
+  local optional_vars=("LLM_API_VERSION" "TINYFISH_BASE_URL" "DATABASE_URL" "AZURE_STORAGE_CONNECTION_STRING")
   local missing=()
   local name value secret_name
 
@@ -164,6 +164,14 @@ build_secret_mapping() {
   fi
 }
 
+append_optional_env() {
+  local name="$1"
+  local value="${!name:-}"
+  if [[ -n "$value" ]]; then
+    PIPELINE_ENV_VARS+=("${name}=${value}")
+  fi
+}
+
 log "Checking Azure CLI prerequisites..."
 az extension add --name containerapp --upgrade
 az provider register --namespace Microsoft.App --output none
@@ -186,6 +194,9 @@ ensure_environment
 ensure_identity
 grant_acr_pull
 build_secret_mapping
+append_optional_env "BLOB_SYNC_ENABLED"
+append_optional_env "BLOB_CONTAINER"
+append_optional_env "BLOB_DB_BLOB_NAME"
 
 if az containerapp job show --name "$JOB_NAME" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
   log "Replacing existing Container Apps job: $JOB_NAME"
