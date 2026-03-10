@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from dealsignal.agents.web_provider import WebCrawlerProvider
 from dealsignal.models.source import Source
+from dealsignal.state_sync import upload_raw_text_to_blob
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ def fetch_sources(
         digest = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
         text_path = target_dir / f"{digest}.txt"
         text_path.write_text(raw_text, encoding="utf-8")
+        upload_raw_text_to_blob(text_path, logger=logger)
 
         source.raw_text_hash = digest
         source.raw_text_path = str(text_path)

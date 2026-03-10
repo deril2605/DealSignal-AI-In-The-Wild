@@ -103,3 +103,41 @@ def upload_sqlite_to_blob(db_path: Path | None = None, logger: logging.Logger | 
     with path.open("rb") as handle:
         blob_client.upload_blob(handle, overwrite=True)
     log.info("Uploaded SQLite state to blob %s/%s", container, blob_name)
+
+
+def upload_raw_text_to_blob(raw_file_path: Path, logger: logging.Logger | None = None) -> None:
+    log = logger or logging.getLogger(__name__)
+    if not blob_sync_enabled():
+        return
+    if not raw_file_path.exists():
+        return
+
+    try:
+        from azure.core.exceptions import ResourceExistsError
+        from azure.storage.blob import BlobServiceClient
+    except ImportError:
+        log.error("Blob sync enabled but azure-storage-blob is not installed.")
+        return
+
+    conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip()
+    container = os.getenv("BLOB_CONTAINER", "dealsignal")
+    raw_prefix = os.getenv("BLOB_RAW_PREFIX", "raw").strip("/") or "raw"
+    if not conn_str:
+        log.warning("Blob sync is enabled but AZURE_STORAGE_CONNECTION_STRING is missing.")
+        return
+
+    blob_name = f"{raw_prefix}/{raw_file_path.name}"
+    try:
+        service = BlobServiceClient.from_connection_string(conn_str)
+        container_client = service.get_container_client(container)
+        try:
+            container_client.create_container()
+        except ResourceExistsError:
+            pass
+
+        blob_client = container_client.get_blob_client(blob_name)
+        with raw_file_path.open("rb") as handle:
+            blob_client.upload_blob(handle, overwrite=True)
+        log.info("Uploaded raw text to blob %s/%s", container, blob_name)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Failed to upload raw text %s to blob: %s", raw_file_path, exc)
