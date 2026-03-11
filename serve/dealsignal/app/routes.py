@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
@@ -13,9 +14,11 @@ from dealsignal.models.company_narrative import CompanyNarrative
 from dealsignal.models.database import SessionLocal
 from dealsignal.models.lead_score import LeadScore
 from dealsignal.models.narrative_delta import NarrativeDelta
+from dealsignal.models.opportunity_eval import OpportunityEval
 from dealsignal.models.pipeline_run import PipelineRun
 from dealsignal.models.signal_event import SignalEvent
 from dealsignal.models.source import Source
+from dealsignal.pipeline.evals import top_opportunity_scores
 
 router = APIRouter()
 templates = Jinja2Templates(directory="dealsignal/app/templates")
@@ -131,6 +134,61 @@ def opportunities(request: Request, db: Session = Depends(get_db)):
         "opportunities.html",
         {"request": request, "opportunities": _top_opportunities(db, limit=25)},
     )
+
+
+@router.get("/evals")
+def evals(request: Request, db: Session = Depends(get_db)):
+    items = db.scalars(
+        select(OpportunityEval).order_by(OpportunityEval.snapshot_date.desc(), OpportunityEval.rank.asc())
+    ).all()
+    grouped = _group_evals(items)
+    pending_count = sum(1 for item in items if item.review_status == "pending")
+    useful_count = sum(1 for item in items if item.review_status == "useful")
+    maybe_count = sum(1 for item in items if item.review_status == "maybe")
+    not_useful_count = sum(1 for item in items if item.review_status == "not_useful")
+    latest_candidates = [
+        {
+            "lead_score": _lead_score_to_view(score),
+            "event": score.source_event,
+            "company": score.company,
+        }
+        for score in top_opportunity_scores(db, limit=5)
+    ]
+    return templates.TemplateResponse(
+        "evals.html",
+        {
+            "request": request,
+            "eval_groups": grouped,
+            "metrics": {
+                "pending": pending_count,
+                "useful": useful_count,
+                "maybe": maybe_count,
+                "not_useful": not_useful_count,
+            },
+            "latest_candidates": latest_candidates,
+        },
+    )
+
+
+@router.post("/evals/{eval_id}")
+def update_eval(
+    eval_id: int,
+    review_status: str = Form(...),
+    review_notes: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    item = db.get(OpportunityEval, eval_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Eval item not found")
+    normalized_status = review_status.strip().lower()
+    allowed = {"useful", "maybe", "not_useful"}
+    if normalized_status not in allowed:
+        raise HTTPException(status_code=400, detail="Invalid review status")
+    item.review_status = normalized_status
+    item.review_notes = review_notes.strip()
+    item.reviewed_at = datetime.utcnow()
+    db.commit()
+    return RedirectResponse(url="/evals", status_code=303)
 
 
 @router.get("/companies/{company_id}")
@@ -382,14 +440,7 @@ def _event_card_view(event: SignalEvent) -> dict:
 
 
 def _top_opportunities(db: Session, limit: int) -> list[dict]:
-    since = datetime.utcnow() - timedelta(days=7)
-    scores = db.scalars(
-        select(LeadScore)
-        .join(SignalEvent, LeadScore.source_event_id == SignalEvent.id)
-        .where(SignalEvent.created_at >= since)
-        .order_by(LeadScore.lead_score.desc(), SignalEvent.created_at.desc())
-        .limit(limit)
-    ).all()
+    scores = top_opportunity_scores(db, limit=limit)
     return [
         {
             "lead_score": _lead_score_to_view(score),
@@ -399,3 +450,52 @@ def _top_opportunities(db: Session, limit: int) -> list[dict]:
         }
         for score in scores
     ]
+
+
+def _group_evals(items: list[OpportunityEval]) -> list[dict]:
+    groups: list[dict] = []
+    current_date = None
+    current_items: list[dict] = []
+    for item in items:
+        if item.snapshot_date != current_date:
+            if current_date is not None:
+                groups.append(
+                    {
+                        "snapshot_date": current_date.isoformat(),
+                        "items": current_items,
+                        "counts": _eval_counts(current_items),
+                    }
+                )
+            current_date = item.snapshot_date
+            current_items = []
+        current_items.append(
+            {
+                "id": item.id,
+                "rank": item.rank,
+                "status": item.review_status,
+                "notes": item.review_notes,
+                "reviewed_at_ist": _to_ist(item.reviewed_at),
+                "lead_score_value": item.lead_score_value,
+                "explanation": item.explanation,
+                "company": item.company,
+                "event": item.signal_event,
+            }
+        )
+    if current_date is not None:
+        groups.append(
+            {
+                "snapshot_date": current_date.isoformat(),
+                "items": current_items,
+                "counts": _eval_counts(current_items),
+            }
+        )
+    return groups
+
+
+def _eval_counts(items: list[dict]) -> dict[str, int]:
+    return {
+        "pending": sum(1 for item in items if item["status"] == "pending"),
+        "useful": sum(1 for item in items if item["status"] == "useful"),
+        "maybe": sum(1 for item in items if item["status"] == "maybe"),
+        "not_useful": sum(1 for item in items if item["status"] == "not_useful"),
+    }

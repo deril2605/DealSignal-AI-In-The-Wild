@@ -20,6 +20,7 @@ from dealsignal.models.database import SessionLocal, init_db, session_scope
 from dealsignal.models.pipeline_run import PipelineRun
 from dealsignal.pipeline.digest import generate_daily_digest
 from dealsignal.pipeline.discover import discover_sources, load_watchlist
+from dealsignal.pipeline.evals import store_daily_eval_snapshot
 from dealsignal.pipeline.extract import extract_from_fetched_sources
 from dealsignal.pipeline.fetch import fetch_sources
 from dealsignal.state_sync import download_sqlite_from_blob
@@ -97,6 +98,11 @@ def run_pipeline() -> None:
             generate_daily_digest(session)
             stage_seconds["digest"] = round(perf_counter() - t0, 2)
             logger.info("Stage digest complete: reports/daily_digest.md updated (%.2fs)", stage_seconds["digest"])
+
+            t0 = perf_counter()
+            eval_rows = store_daily_eval_snapshot(session)
+            stage_seconds["evals"] = round(perf_counter() - t0, 2)
+            logger.info("Stage evals complete: %d rows stored (%.2fs)", eval_rows, stage_seconds["evals"])
 
             failed = _count_failed_sources(session)
         _finish_pipeline_run(
