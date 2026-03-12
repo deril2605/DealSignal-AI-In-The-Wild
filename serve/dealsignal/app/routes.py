@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
@@ -11,14 +13,19 @@ from sqlalchemy.orm import Session
 from dealsignal.models.company import Company
 from dealsignal.models.company_narrative import CompanyNarrative
 from dealsignal.models.database import SessionLocal
+from dealsignal.models.lead_score import LeadScore
 from dealsignal.models.narrative_delta import NarrativeDelta
+from dealsignal.models.opportunity_eval import OpportunityEval
 from dealsignal.models.pipeline_run import PipelineRun
 from dealsignal.models.signal_event import SignalEvent
 from dealsignal.models.source import Source
+from dealsignal.pipeline.evals import top_opportunity_scores
+from dealsignal.state_sync import upload_sqlite_to_blob
 
 router = APIRouter()
 templates = Jinja2Templates(directory="dealsignal/app/templates")
 IST = timezone(timedelta(hours=5, minutes=30))
+logger = logging.getLogger(__name__)
 
 
 def get_db():
@@ -76,6 +83,7 @@ def home(
     event_cards.sort(
         key=lambda card: (
             {"alert": 0, "recorded": 1, "standard": 2}.get(card["change_status"], 3),
+            -card["lead_score_value"],
             -card["event"].score,
         )
     )
@@ -88,12 +96,14 @@ def home(
     if not selected_signal_types:
         selected_signal_types = list(signal_type_options)
     latest_run = db.scalars(select(PipelineRun).order_by(PipelineRun.started_at.desc()).limit(1)).first()
+    top_opportunities = _top_opportunities(db, limit=5)
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "events": event_cards,
             "latest_run": latest_run,
+            "top_opportunities": top_opportunities,
             "companies": companies,
             "signal_types": signal_type_options,
             "change_status_options": [
@@ -121,6 +131,71 @@ def companies(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("companies.html", {"request": request, "companies": items})
 
 
+@router.get("/opportunities")
+def opportunities(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(
+        "opportunities.html",
+        {"request": request, "opportunities": _top_opportunities(db, limit=25)},
+    )
+
+
+@router.get("/evals")
+def evals(request: Request, db: Session = Depends(get_db)):
+    items = db.scalars(
+        select(OpportunityEval).order_by(OpportunityEval.snapshot_date.desc(), OpportunityEval.rank.asc())
+    ).all()
+    grouped = _group_evals(items)
+    pending_count = sum(1 for item in items if item.review_status == "pending")
+    useful_count = sum(1 for item in items if item.review_status == "useful")
+    maybe_count = sum(1 for item in items if item.review_status == "maybe")
+    not_useful_count = sum(1 for item in items if item.review_status == "not_useful")
+    latest_candidates = [
+        {
+            "lead_score": _lead_score_to_view(score),
+            "event": score.source_event,
+            "company": score.company,
+            **_display_event_context(score.source_event),
+        }
+        for score in top_opportunity_scores(db, limit=5)
+    ]
+    return templates.TemplateResponse(
+        "evals.html",
+        {
+            "request": request,
+            "eval_groups": grouped,
+            "metrics": {
+                "pending": pending_count,
+                "useful": useful_count,
+                "maybe": maybe_count,
+                "not_useful": not_useful_count,
+            },
+            "latest_candidates": latest_candidates,
+        },
+    )
+
+
+@router.post("/evals/{eval_id}")
+def update_eval(
+    eval_id: int,
+    review_status: str = Form(...),
+    review_notes: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    item = db.get(OpportunityEval, eval_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Eval item not found")
+    normalized_status = review_status.strip().lower()
+    allowed = {"useful", "maybe", "not_useful"}
+    if normalized_status not in allowed:
+        raise HTTPException(status_code=400, detail="Invalid review status")
+    item.review_status = normalized_status
+    item.review_notes = review_notes.strip()
+    item.reviewed_at = datetime.utcnow()
+    db.commit()
+    upload_sqlite_to_blob(logger=logger)
+    return RedirectResponse(url="/evals", status_code=303)
+
+
 @router.get("/companies/{company_id}")
 def company_detail(company_id: int, request: Request, db: Session = Depends(get_db)):
     company = db.get(Company, company_id)
@@ -146,26 +221,28 @@ def company_detail(company_id: int, request: Request, db: Session = Depends(get_
         )
     )
     narrative = db.scalar(select(CompanyNarrative).where(CompanyNarrative.company_id == company_id))
-    events_view = [{"event": event, "delta_view": _delta_to_view(event.narrative_delta)} for event in events]
+    events_view = [_event_card_view(event) for event in events]
     events_view.sort(
         key=lambda item: (
             {"alert": 0, "recorded": 1, "standard": 2}.get(
-                "alert"
-                if item["delta_view"] and item["delta_view"]["should_alert"]
-                else "recorded"
-                if item["delta_view"]
-                else "standard",
+                item["change_status"],
                 3,
             ),
+            -item["lead_score_value"],
             -item["event"].score,
         )
     )
+    top_company_opportunities = sorted(
+        [item for item in events_view if item["lead_score_view"]],
+        key=lambda item: (-item["lead_score_value"], -item["event"].score),
+    )[:5]
     return templates.TemplateResponse(
         "company_detail.html",
         {
             "request": request,
             "company": company,
             "events": events_view,
+            "top_company_opportunities": top_company_opportunities,
             "recent_deltas": recent_deltas_view,
             "narrative": narrative,
         },
@@ -178,9 +255,19 @@ def event_detail(event_id: int, request: Request, db: Session = Depends(get_db))
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     delta = db.scalar(select(NarrativeDelta).where(NarrativeDelta.source_event_id == event_id))
+    lead_score = db.scalar(select(LeadScore).where(LeadScore.source_event_id == event_id))
+    display = _display_event_context(event)
     return templates.TemplateResponse(
         "event_detail.html",
-        {"request": request, "event": event, "delta": delta, "delta_view": _delta_to_view(delta)},
+        {
+            "request": request,
+            "event": event,
+            "delta": delta,
+            "delta_view": _delta_to_view(delta),
+            "lead_score_view": _lead_score_to_view(lead_score),
+            "display_title": display["title"],
+            "display_subtitle": display["subtitle"],
+        },
     )
 
 
@@ -195,6 +282,7 @@ def admin(request: Request, db: Session = Depends(get_db)):
     total_sources = int(db.scalar(select(func.count()).select_from(Source)) or 0)
     total_companies = int(db.scalar(select(func.count()).select_from(Company)) or 0)
     total_deltas = int(db.scalar(select(func.count()).select_from(NarrativeDelta)) or 0)
+    total_lead_scores = int(db.scalar(select(func.count()).select_from(LeadScore)) or 0)
     alert_deltas = int(
         db.scalar(select(func.count()).select_from(NarrativeDelta).where(NarrativeDelta.should_alert.is_(True))) or 0
     )
@@ -236,6 +324,7 @@ def admin(request: Request, db: Session = Depends(get_db)):
                 "total_sources": total_sources,
                 "total_companies": total_companies,
                 "total_deltas": total_deltas,
+                "total_lead_scores": total_lead_scores,
                 "alert_deltas": alert_deltas,
                 "fetch_errors": fetch_errors,
                 "extracted_sources": extracted_sources,
@@ -319,8 +408,31 @@ def _delta_to_view(delta: NarrativeDelta | None) -> dict | None:
     }
 
 
+def _lead_score_to_view(score: LeadScore | None) -> dict | None:
+    if score is None:
+        return None
+    components = [
+        {"label": "Lead", "value": score.lead_score},
+        {"label": "Change", "value": score.change_significance_score},
+        {"label": "Strength", "value": score.signal_strength_score},
+        {"label": "Recency", "value": score.recency_score},
+        {"label": "Reinforcement", "value": score.reinforcement_score},
+        {"label": "Thesis Fit", "value": score.thesis_fit_score},
+        {"label": "Source", "value": score.source_quality_score},
+    ]
+    if score.relationship_score > 0:
+        components.append({"label": "Relationship", "value": score.relationship_score})
+    return {
+        "lead_score": score.lead_score,
+        "components": components,
+        "explanation": score.explanation,
+    }
+
+
 def _event_card_view(event: SignalEvent) -> dict:
     delta_view = _delta_to_view(event.narrative_delta)
+    lead_score_view = _lead_score_to_view(event.lead_score)
+    display = _display_event_context(event)
     if delta_view is None:
         change_status = "standard"
     elif delta_view["should_alert"]:
@@ -330,5 +442,118 @@ def _event_card_view(event: SignalEvent) -> dict:
     return {
         "event": event,
         "delta_view": delta_view,
+        "lead_score_view": lead_score_view,
+        "lead_score_value": lead_score_view["lead_score"] if lead_score_view else 0.0,
         "change_status": change_status,
+        "display_title": display["title"],
+        "display_subtitle": display["subtitle"],
     }
+
+
+def _top_opportunities(db: Session, limit: int) -> list[dict]:
+    scores = top_opportunity_scores(db, limit=limit)
+    return [
+        {
+            "lead_score": _lead_score_to_view(score),
+            "event": score.source_event,
+            "company": score.company,
+            "delta_view": _delta_to_view(score.narrative_delta),
+            **_display_event_context(score.source_event),
+        }
+        for score in scores
+    ]
+
+
+def _group_evals(items: list[OpportunityEval]) -> list[dict]:
+    groups: list[dict] = []
+    current_date = None
+    current_items: list[dict] = []
+    for item in items:
+        if item.snapshot_date != current_date:
+            if current_date is not None:
+                groups.append(
+                    {
+                        "snapshot_date": current_date.isoformat(),
+                        "items": current_items,
+                        "counts": _eval_counts(current_items),
+                    }
+                )
+            current_date = item.snapshot_date
+            current_items = []
+        current_items.append(
+            {
+                **_display_event_context(item.signal_event),
+                "id": item.id,
+                "rank": item.rank,
+                "status": item.review_status,
+                "notes": item.review_notes,
+                "reviewed_at_ist": _to_ist(item.reviewed_at),
+                "lead_score_value": item.lead_score_value,
+                "explanation": item.explanation,
+                "company": item.company,
+                "event": item.signal_event,
+            }
+        )
+    if current_date is not None:
+        groups.append(
+            {
+                "snapshot_date": current_date.isoformat(),
+                "items": current_items,
+                "counts": _eval_counts(current_items),
+            }
+        )
+    return groups
+
+
+def _eval_counts(items: list[dict]) -> dict[str, int]:
+    return {
+        "pending": sum(1 for item in items if item["status"] == "pending"),
+        "useful": sum(1 for item in items if item["status"] == "useful"),
+        "maybe": sum(1 for item in items if item["status"] == "maybe"),
+        "not_useful": sum(1 for item in items if item["status"] == "not_useful"),
+    }
+
+
+def _display_event_context(event: SignalEvent) -> dict[str, str]:
+    fields = event.extracted_fields or {}
+    counterparties = [
+        name for name in (fields.get("counterparties") or []) if str(name).strip() and str(name).strip().lower() != event.company.name.lower()
+    ]
+    themes = [str(name).strip() for name in (fields.get("themes") or []) if str(name).strip()]
+    signal_type = event.signal_type
+    company_name = event.company.name
+
+    if signal_type == "M&A / Acquisition Intent":
+        if counterparties:
+            return {
+                "title": f"{company_name} acquisition signal involving {', '.join(counterparties[:2])}",
+                "subtitle": "Counterparty surfaced from extracted fields.",
+            }
+        return {"title": f"{company_name} acquisition signal", "subtitle": "No explicit counterparty extracted."}
+
+    if signal_type == "Strategic Partnership":
+        if counterparties:
+            return {
+                "title": f"{company_name} partnership signal with {', '.join(counterparties[:2])}",
+                "subtitle": "Counterparty surfaced from extracted fields.",
+            }
+        return {"title": f"{company_name} partnership signal", "subtitle": "No explicit counterparty extracted."}
+
+    if signal_type == "Fundraising / Capital Raise":
+        if counterparties:
+            return {
+                "title": f"{company_name} fundraising signal involving {', '.join(counterparties[:2])}",
+                "subtitle": "Counterparty surfaced from extracted fields.",
+            }
+        return {"title": f"{company_name} fundraising signal", "subtitle": "No explicit counterparty extracted."}
+
+    if signal_type == "Product Expansion" and counterparties:
+        return {
+            "title": f"{company_name} product expansion signal linked to {', '.join(counterparties[:2])}",
+            "subtitle": "Counterparty surfaced from extracted fields.",
+        }
+
+    if themes:
+        return {"title": f"{company_name} {signal_type.lower()}", "subtitle": f"Top theme: {themes[0]}"}
+
+    return {"title": f"{company_name} {signal_type.lower()}", "subtitle": ""}

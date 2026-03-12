@@ -2,18 +2,42 @@
 {% block content %}
 <section class="hero">
   <h1>Event #{{ event.id }}</h1>
-  <p>Detailed strategic signal breakdown with evidence and extracted metadata.</p>
+  <p>{{ display_title or "Detailed strategic signal breakdown with evidence and extracted metadata." }}</p>
 </section>
 <div class="card">
   <div class="row">
     <div>
-      <strong>{{ event.company.name }}</strong>
+      <strong>{{ display_title }}</strong>
       <span class="pill">{{ event.signal_type }}</span>
     </div>
-    <span class="score">Score {{ event.score }}</span>
+    <div class="row" style="gap:8px;">
+      {% if lead_score_view %}
+      <span class="score lead-score">Lead {{ lead_score_view["lead_score"] }}</span>
+      {% endif %}
+      <span class="score">Score {{ event.score }}</span>
+    </div>
   </div>
+  {% if display_subtitle %}
+  <p class="muted" style="margin:8px 0 0;">{{ display_subtitle }}</p>
+  {% endif %}
   <p class="summary"><strong>Summary:</strong> {{ event.summary }}</p>
   <p><strong>Evidence:</strong> {{ event.evidence_excerpt }}</p>
+  {% if lead_score_view %}
+  <div class="card" style="margin-top:12px;margin-bottom:12px;background:#fffcf4;border:1px solid #f2d48b;">
+    <div class="row">
+      <strong>Lead Score Breakdown</strong>
+      <span class="score lead-score">Lead {{ lead_score_view["lead_score"] }}</span>
+    </div>
+    <p class="muted" style="margin-top:8px;">{{ lead_score_view["explanation"] }}</p>
+    <div class="row" style="gap:6px;margin-top:8px;">
+      {% for component in lead_score_view["components"] %}
+      {% if component["label"] != "Lead" %}
+      <span class="pill">{{ component["label"] }} {{ component["value"] }}</span>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
   {% if delta_view %}
   <div class="card {% if delta_view['should_alert'] %}alert-panel{% else %}recorded-panel{% endif %}" style="margin-top:12px;margin-bottom:12px;border:1px solid;">
     <div class="row">
@@ -26,7 +50,6 @@
     </p>
     {% endfor %}
     <p class="muted">Significance: {{ delta_view["significance_score"] }}</p>
-    <pre>{{ delta.delta_payload }}</pre>
   </div>
   {% endif %}
   <div class="row">

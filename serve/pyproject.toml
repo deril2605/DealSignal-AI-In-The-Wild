@@ -18,6 +18,7 @@ dependencies = [
   "jinja2==3.1.4",
   "python-dotenv==1.0.1",
   "azure-storage-blob==12.23.1",
+  "python-multipart==0.0.20",
 ]
 
 [dependency-groups]

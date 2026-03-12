@@ -23,3 +23,4 @@ class NarrativeDelta(Base):
 
     company = relationship("Company", back_populates="narrative_deltas")
     source_event = relationship("SignalEvent", back_populates="narrative_delta")
+    lead_score = relationship("LeadScore", back_populates="narrative_delta", uselist=False)

@@ -21,4 +21,5 @@ class Company(Base):
     signal_events = relationship("SignalEvent", back_populates="company", cascade="all, delete-orphan")
     narrative = relationship("CompanyNarrative", back_populates="company", uselist=False, cascade="all, delete-orphan")
     narrative_deltas = relationship("NarrativeDelta", back_populates="company", cascade="all, delete-orphan")
+    lead_scores = relationship("LeadScore", back_populates="company", cascade="all, delete-orphan")
 
