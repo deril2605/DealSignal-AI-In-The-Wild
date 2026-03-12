@@ -8,7 +8,7 @@
 <div class="card" style="background:#fffcf4;border-color:#f2d48b;">
   <div class="row">
     <div>
-      <a href="/companies/{{ item.company.id }}" style="text-decoration:none;color:inherit;"><strong>{{ item.company.name }}</strong></a>
+      <a href="/companies/{{ item.company.id }}" style="text-decoration:none;color:inherit;"><strong>{{ item.display_title }}</strong></a>
       <span class="pill">{{ item.event.signal_type }}</span>
       {% if item.delta_view and item.delta_view["should_alert"] %}
       <span class="pill alert-badge">ALERT</span>
@@ -18,6 +18,9 @@
     </div>
     <span class="score lead-score">Lead {{ item.lead_score["lead_score"] }}</span>
   </div>
+  {% if item.display_subtitle %}
+  <p class="muted" style="margin:8px 0 0;">{{ item.display_subtitle }}</p>
+  {% endif %}
   <p class="summary">{{ item.event.summary }}</p>
   <p class="muted"><strong>Why ranked:</strong> {{ item.lead_score["explanation"] }}</p>
   <div class="row" style="gap:6px;margin-top:8px;">

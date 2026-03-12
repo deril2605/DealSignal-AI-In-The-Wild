@@ -17,7 +17,7 @@
     <div class="card">
       <div class="row">
         <div>
-          <strong>{{ company.name }}</strong>
+          <strong>{{ item.display_title }}</strong>
           <span class="pill">{{ item.event.signal_type }}</span>
         </div>
         <div class="row" style="gap:8px;">
@@ -27,6 +27,9 @@
           <span class="score">Score {{ item.event.score }}</span>
         </div>
       </div>
+      {% if item.display_subtitle %}
+      <p class="muted" style="margin:8px 0 0;">{{ item.display_subtitle }}</p>
+      {% endif %}
       <p class="summary">{{ item.event.summary }}</p>
       <p class="muted">Date: {{ item.event.created_at.strftime('%Y-%m-%d') }}</p>
       {% if item.lead_score_view %}
@@ -173,6 +176,7 @@
             <span class="pill">{{ item.event.signal_type }}</span>
             <span class="score lead-score">Lead {{ item.lead_score_view["lead_score"] }}</span>
           </div>
+          <p class="muted" style="margin:8px 0 0;"><strong>{{ item.display_title }}</strong></p>
           <p class="muted" style="margin:8px 0 0;">{{ item.lead_score_view["explanation"] }}</p>
           <p class="actions" style="margin-top:8px;"><a href="/events/{{ item.event.id }}">Open event</a></p>
         </div>

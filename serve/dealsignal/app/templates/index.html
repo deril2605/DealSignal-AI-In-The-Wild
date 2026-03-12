@@ -108,7 +108,7 @@
     <div class="card {% if item.change_status == 'alert' %}alert-panel{% elif item.change_status == 'recorded' %}recorded-panel{% endif %}" style="{% if item.change_status != 'standard' %}border:1px solid;{% endif %}">
       <div class="row">
         <div>
-          <a href="/companies/{{ item.event.company.id }}" style="text-decoration:none;color:inherit;"><strong>{{ item.event.company.name }}</strong></a>
+          <a href="/companies/{{ item.event.company.id }}" style="text-decoration:none;color:inherit;"><strong>{{ item.display_title }}</strong></a>
           <span class="pill">{{ item.event.signal_type }}</span>
           {% if item.change_status == 'alert' %}
           <span class="pill alert-badge">PRIORITY ALERT</span>
@@ -125,6 +125,9 @@
           <span class="score">Score {{ item.event.score }}</span>
         </div>
       </div>
+      {% if item.display_subtitle %}
+      <p class="muted" style="margin:8px 0 0;">{{ item.display_subtitle }}</p>
+      {% endif %}
       <p class="summary">{{ item.event.summary }}</p>
       <p class="muted">Date: {{ item.event.created_at.strftime('%Y-%m-%d') }}</p>
       {% if item.lead_score_view %}

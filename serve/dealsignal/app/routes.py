@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -19,10 +20,12 @@ from dealsignal.models.pipeline_run import PipelineRun
 from dealsignal.models.signal_event import SignalEvent
 from dealsignal.models.source import Source
 from dealsignal.pipeline.evals import top_opportunity_scores
+from dealsignal.state_sync import upload_sqlite_to_blob
 
 router = APIRouter()
 templates = Jinja2Templates(directory="dealsignal/app/templates")
 IST = timezone(timedelta(hours=5, minutes=30))
+logger = logging.getLogger(__name__)
 
 
 def get_db():
@@ -151,6 +154,7 @@ def evals(request: Request, db: Session = Depends(get_db)):
             "lead_score": _lead_score_to_view(score),
             "event": score.source_event,
             "company": score.company,
+            **_display_event_context(score.source_event),
         }
         for score in top_opportunity_scores(db, limit=5)
     ]
@@ -188,6 +192,7 @@ def update_eval(
     item.review_notes = review_notes.strip()
     item.reviewed_at = datetime.utcnow()
     db.commit()
+    upload_sqlite_to_blob(logger=logger)
     return RedirectResponse(url="/evals", status_code=303)
 
 
@@ -251,6 +256,7 @@ def event_detail(event_id: int, request: Request, db: Session = Depends(get_db))
         raise HTTPException(status_code=404, detail="Event not found")
     delta = db.scalar(select(NarrativeDelta).where(NarrativeDelta.source_event_id == event_id))
     lead_score = db.scalar(select(LeadScore).where(LeadScore.source_event_id == event_id))
+    display = _display_event_context(event)
     return templates.TemplateResponse(
         "event_detail.html",
         {
@@ -259,6 +265,8 @@ def event_detail(event_id: int, request: Request, db: Session = Depends(get_db))
             "delta": delta,
             "delta_view": _delta_to_view(delta),
             "lead_score_view": _lead_score_to_view(lead_score),
+            "display_title": display["title"],
+            "display_subtitle": display["subtitle"],
         },
     )
 
@@ -424,6 +432,7 @@ def _lead_score_to_view(score: LeadScore | None) -> dict | None:
 def _event_card_view(event: SignalEvent) -> dict:
     delta_view = _delta_to_view(event.narrative_delta)
     lead_score_view = _lead_score_to_view(event.lead_score)
+    display = _display_event_context(event)
     if delta_view is None:
         change_status = "standard"
     elif delta_view["should_alert"]:
@@ -436,6 +445,8 @@ def _event_card_view(event: SignalEvent) -> dict:
         "lead_score_view": lead_score_view,
         "lead_score_value": lead_score_view["lead_score"] if lead_score_view else 0.0,
         "change_status": change_status,
+        "display_title": display["title"],
+        "display_subtitle": display["subtitle"],
     }
 
 
@@ -447,6 +458,7 @@ def _top_opportunities(db: Session, limit: int) -> list[dict]:
             "event": score.source_event,
             "company": score.company,
             "delta_view": _delta_to_view(score.narrative_delta),
+            **_display_event_context(score.source_event),
         }
         for score in scores
     ]
@@ -470,6 +482,7 @@ def _group_evals(items: list[OpportunityEval]) -> list[dict]:
             current_items = []
         current_items.append(
             {
+                **_display_event_context(item.signal_event),
                 "id": item.id,
                 "rank": item.rank,
                 "status": item.review_status,
@@ -499,3 +512,48 @@ def _eval_counts(items: list[dict]) -> dict[str, int]:
         "maybe": sum(1 for item in items if item["status"] == "maybe"),
         "not_useful": sum(1 for item in items if item["status"] == "not_useful"),
     }
+
+
+def _display_event_context(event: SignalEvent) -> dict[str, str]:
+    fields = event.extracted_fields or {}
+    counterparties = [
+        name for name in (fields.get("counterparties") or []) if str(name).strip() and str(name).strip().lower() != event.company.name.lower()
+    ]
+    themes = [str(name).strip() for name in (fields.get("themes") or []) if str(name).strip()]
+    signal_type = event.signal_type
+    company_name = event.company.name
+
+    if signal_type == "M&A / Acquisition Intent":
+        if counterparties:
+            return {
+                "title": f"{company_name} acquisition signal involving {', '.join(counterparties[:2])}",
+                "subtitle": "Counterparty surfaced from extracted fields.",
+            }
+        return {"title": f"{company_name} acquisition signal", "subtitle": "No explicit counterparty extracted."}
+
+    if signal_type == "Strategic Partnership":
+        if counterparties:
+            return {
+                "title": f"{company_name} partnership signal with {', '.join(counterparties[:2])}",
+                "subtitle": "Counterparty surfaced from extracted fields.",
+            }
+        return {"title": f"{company_name} partnership signal", "subtitle": "No explicit counterparty extracted."}
+
+    if signal_type == "Fundraising / Capital Raise":
+        if counterparties:
+            return {
+                "title": f"{company_name} fundraising signal involving {', '.join(counterparties[:2])}",
+                "subtitle": "Counterparty surfaced from extracted fields.",
+            }
+        return {"title": f"{company_name} fundraising signal", "subtitle": "No explicit counterparty extracted."}
+
+    if signal_type == "Product Expansion" and counterparties:
+        return {
+            "title": f"{company_name} product expansion signal linked to {', '.join(counterparties[:2])}",
+            "subtitle": "Counterparty surfaced from extracted fields.",
+        }
+
+    if themes:
+        return {"title": f"{company_name} {signal_type.lower()}", "subtitle": f"Top theme: {themes[0]}"}
+
+    return {"title": f"{company_name} {signal_type.lower()}", "subtitle": ""}

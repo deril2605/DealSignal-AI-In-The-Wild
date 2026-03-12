@@ -38,22 +38,36 @@
 <section class="card">
   <div class="row">
     <div>
-      <strong>{{ group.snapshot_date }}</strong>
+      <strong>{{ group["snapshot_date"] }}</strong>
       <p class="muted" style="margin:6px 0 0;">
-        Pending {{ group.counts.pending }} |
-        Useful {{ group.counts.useful }} |
-        Maybe {{ group.counts.maybe }} |
-        Not Useful {{ group.counts.not_useful }}
+        Pending {{ group["counts"]["pending"] }} |
+        Useful {{ group["counts"]["useful"] }} |
+        Maybe {{ group["counts"]["maybe"] }} |
+        Not Useful {{ group["counts"]["not_useful"] }}
       </p>
     </div>
-    <span class="pill">{{ group.items|length }} items</span>
+    <div class="row" style="gap:8px;">
+      <span class="pill">{{ group["items"]|length }} items</span>
+      <button
+        type="button"
+        class="eval-toggle"
+        data-target="eval-group-{{ loop.index }}"
+        aria-expanded="{% if loop.first %}true{% else %}false{% endif %}"
+        style="background:#ffffff;color:#0d4d7b;border-color:#cdd8e5;"
+      >
+        {% if loop.first %}Collapse{% else %}Expand{% endif %}
+      </button>
+    </div>
   </div>
-  <div style="display:grid;gap:12px;margin-top:12px;">
-    {% for item in group.items %}
+  <div
+    id="eval-group-{{ loop.index }}"
+    style="display:{% if loop.first %}grid{% else %}none{% endif %};gap:12px;margin-top:12px;"
+  >
+    {% for item in group["items"] %}
     <div class="card {% if item.status == 'useful' %}alert-panel{% elif item.status == 'maybe' %}recorded-panel{% endif %}" style="margin:0;">
       <div class="row">
         <div>
-          <strong>#{{ item.rank }} {{ item.company.name }}</strong>
+          <strong>#{{ item.rank }} {{ item.display_title }}</strong>
           <span class="pill">{{ item.event.signal_type }}</span>
           {% if item.status == "pending" %}
           <span class="pill">PENDING</span>
@@ -67,6 +81,9 @@
         </div>
         <span class="score lead-score">Lead {{ item.lead_score_value }}</span>
       </div>
+      {% if item.display_subtitle %}
+      <p class="muted" style="margin:8px 0 0;">{{ item.display_subtitle }}</p>
+      {% endif %}
       <p class="summary">{{ item.event.summary }}</p>
       <p class="muted"><strong>Why ranked:</strong> {{ item.explanation }}</p>
       <p class="actions" style="margin:10px 0 0;"><a href="/events/{{ item.event.id }}">Open event details</a></p>
@@ -94,4 +111,17 @@
 {% else %}
 <div class="empty">No eval snapshots yet. Run the pipeline once to generate the first daily review set.</div>
 {% endfor %}
+<script>
+  document.querySelectorAll('.eval-toggle').forEach((button) => {
+    button.addEventListener('click', () => {
+      const targetId = button.getAttribute('data-target');
+      const panel = document.getElementById(targetId);
+      if (!panel) return;
+      const isExpanded = button.getAttribute('aria-expanded') === 'true';
+      panel.style.display = isExpanded ? 'none' : 'grid';
+      button.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
+      button.textContent = isExpanded ? 'Expand' : 'Collapse';
+    });
+  });
+</script>
 {% endblock %}
