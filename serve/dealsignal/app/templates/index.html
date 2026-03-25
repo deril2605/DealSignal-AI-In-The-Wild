@@ -2,9 +2,9 @@
 {% block content %}
 <section class="hero">
   <h1>Top Strategic Signals</h1>
-  <p>Priority alerts surface first, followed by recorded changes and standard signals.</p>
+  <p>A tight shortlist of current opportunities comes first. Older or lower-conviction signals move into the broader feed.</p>
   <p class="muted" style="margin-top:8px;">
-    Alerts: {{ feed_counts.alert }} |
+    Priority Now: {{ feed_counts.alert }} |
     Recorded: {{ feed_counts.recorded }} |
     Standard: {{ feed_counts.standard }}
   </p>
@@ -14,6 +14,38 @@
     </a>
   </p>
 </section>
+{% if priority_now %}
+<section class="card" style="margin-bottom:16px;border-color:#f2d48b;background:#fffaf0;">
+  <div class="row">
+    <div>
+      <strong>Priority Now</strong>
+      <p class="muted" style="margin:6px 0 0;">Recent high-conviction signals only. We cap this list so the homepage stays actionable.</p>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:12px;">
+    {% for item in priority_now %}
+    <a href="/events/{{ item.event.id }}" style="text-decoration:none;color:inherit;">
+      <div class="card alert-panel" style="margin:0;height:100%;border:1px solid;">
+        <div class="row">
+          <strong>{{ item.event.company.name }}</strong>
+          <span class="score lead-score">Lead {{ item.lead_score_view["lead_score"] }}</span>
+        </div>
+        <p style="margin:8px 0 0;">
+          <span class="pill">{{ item.event.signal_type }}</span>
+          <span class="pill alert-badge">PRIORITY NOW</span>
+        </p>
+        <p class="summary">{{ item.event.summary }}</p>
+        <p class="muted" style="margin:0;">{{ item.display_title }}</p>
+        <p class="muted" style="margin:8px 0 0;">Date: {{ item.event.created_at.strftime('%Y-%m-%d') }}</p>
+        {% if item.lead_score_view %}
+        <p class="muted" style="margin:8px 0 0;">{{ item.lead_score_view["explanation"] }}</p>
+        {% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 {% if top_opportunities %}
 <section class="card" style="margin-bottom:16px;">
   <div class="row">
@@ -104,6 +136,12 @@
   </aside>
 
   <section>
+    <div class="row" style="margin-bottom:10px;">
+      <div>
+        <strong>Signal History</strong>
+        <p class="muted" style="margin:6px 0 0;">The broader feed keeps context visible without crowding the action list.</p>
+      </div>
+    </div>
     {% for item in events %}
     <div class="card {% if item.change_status == 'alert' %}alert-panel{% elif item.change_status == 'recorded' %}recorded-panel{% endif %}" style="{% if item.change_status != 'standard' %}border:1px solid;{% endif %}">
       <div class="row">
@@ -111,7 +149,7 @@
           <a href="/companies/{{ item.event.company.id }}" style="text-decoration:none;color:inherit;"><strong>{{ item.display_title }}</strong></a>
           <span class="pill">{{ item.event.signal_type }}</span>
           {% if item.change_status == 'alert' %}
-          <span class="pill alert-badge">PRIORITY ALERT</span>
+          <span class="pill alert-badge">PRIORITY NOW</span>
           {% elif item.change_status == 'recorded' %}
           <span class="pill recorded-badge">RECORDED CHANGE</span>
           {% else %}

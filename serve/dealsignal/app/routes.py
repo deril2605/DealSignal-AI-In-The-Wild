@@ -19,6 +19,7 @@ from dealsignal.models.opportunity_eval import OpportunityEval
 from dealsignal.models.pipeline_run import PipelineRun
 from dealsignal.models.signal_event import SignalEvent
 from dealsignal.models.source import Source
+from dealsignal.pipeline.config import ensure_scoring_config, update_scoring_config
 from dealsignal.pipeline.evals import top_opportunity_scores
 from dealsignal.state_sync import upload_sqlite_to_blob
 
@@ -26,6 +27,10 @@ router = APIRouter()
 templates = Jinja2Templates(directory="dealsignal/app/templates")
 IST = timezone(timedelta(hours=5, minutes=30))
 logger = logging.getLogger(__name__)
+PRIORITY_WINDOW_DAYS = 7
+PRIORITY_MIN_LEAD_SCORE = 80.0
+PRIORITY_MAX_COMPANIES = 8
+PRIORITY_MAX_PER_COMPANY = 2
 
 
 def get_db():
@@ -49,6 +54,7 @@ def home(
 ):
     companies = db.scalars(select(Company).order_by(Company.name.asc())).all()
     all_company_ids = [company.id for company in companies]
+    now = datetime.utcnow()
 
     selected_company_ids = [c for c in (company_ids or []) if isinstance(c, int)]
     is_company_filter_active = company_filter_active == 1
@@ -77,16 +83,20 @@ def home(
         stmt = stmt.where(SignalEvent.created_at >= parsed_from)
 
     events = db.scalars(stmt.order_by(SignalEvent.score.desc()).limit(100)).all()
-    event_cards = [_event_card_view(event) for event in events]
+    event_cards = [_event_card_view(event, now=now) for event in events]
     if selected_change_statuses:
         event_cards = [card for card in event_cards if card["change_status"] in selected_change_statuses]
     event_cards.sort(
         key=lambda card: (
             {"alert": 0, "recorded": 1, "standard": 2}.get(card["change_status"], 3),
+            -card["effective_at_sort_ts"],
             -card["lead_score_value"],
             -card["event"].score,
         )
     )
+    priority_now = _priority_now_cards(event_cards)
+    curated_priority_ids = {card["event"].id for card in priority_now}
+    main_feed_cards = [card for card in event_cards if card["event"].id not in curated_priority_ids]
     alert_count = sum(1 for card in event_cards if card["change_status"] == "alert")
     recorded_count = sum(1 for card in event_cards if card["change_status"] == "recorded")
     standard_count = sum(1 for card in event_cards if card["change_status"] == "standard")
@@ -101,7 +111,8 @@ def home(
         "index.html",
         {
             "request": request,
-            "events": event_cards,
+            "events": main_feed_cards,
+            "priority_now": priority_now,
             "latest_run": latest_run,
             "top_opportunities": top_opportunities,
             "companies": companies,
@@ -144,6 +155,8 @@ def evals(request: Request, db: Session = Depends(get_db)):
     items = db.scalars(
         select(OpportunityEval).order_by(OpportunityEval.snapshot_date.desc(), OpportunityEval.rank.asc())
     ).all()
+    config = ensure_scoring_config(db)
+    db.commit()
     grouped = _group_evals(items)
     pending_count = sum(1 for item in items if item.review_status == "pending")
     useful_count = sum(1 for item in items if item.review_status == "useful")
@@ -163,15 +176,50 @@ def evals(request: Request, db: Session = Depends(get_db)):
         {
             "request": request,
             "eval_groups": grouped,
+            "scoring_config": config,
             "metrics": {
                 "pending": pending_count,
                 "useful": useful_count,
                 "maybe": maybe_count,
                 "not_useful": not_useful_count,
             },
+            "analytics": _eval_analytics(items),
             "latest_candidates": latest_candidates,
         },
     )
+
+
+@router.post("/evals/config")
+def update_eval_config(
+    alert_threshold: float = Form(...),
+    lead_change_weight: float = Form(...),
+    lead_strength_weight: float = Form(...),
+    lead_recency_weight: float = Form(...),
+    lead_reinforcement_weight: float = Form(...),
+    lead_thesis_weight: float = Form(...),
+    lead_source_weight: float = Form(...),
+    db: Session = Depends(get_db),
+):
+    weights = {
+        "lead_change_weight": _bounded_float(lead_change_weight, 0.0, 1.0),
+        "lead_strength_weight": _bounded_float(lead_strength_weight, 0.0, 1.0),
+        "lead_recency_weight": _bounded_float(lead_recency_weight, 0.0, 1.0),
+        "lead_reinforcement_weight": _bounded_float(lead_reinforcement_weight, 0.0, 1.0),
+        "lead_thesis_weight": _bounded_float(lead_thesis_weight, 0.0, 1.0),
+        "lead_source_weight": _bounded_float(lead_source_weight, 0.0, 1.0),
+    }
+    total_weight = sum(weights.values())
+    if total_weight <= 0:
+        raise HTTPException(status_code=400, detail="At least one lead-score weight must be positive.")
+    normalized = {key: round(value / total_weight, 4) for key, value in weights.items()}
+    update_scoring_config(
+        db,
+        alert_threshold=_bounded_float(alert_threshold, 0.0, 1.0),
+        **normalized,
+    )
+    db.commit()
+    upload_sqlite_to_blob(logger=logger)
+    return RedirectResponse(url="/evals", status_code=303)
 
 
 @router.post("/evals/{eval_id}")
@@ -228,6 +276,7 @@ def company_detail(company_id: int, request: Request, db: Session = Depends(get_
                 item["change_status"],
                 3,
             ),
+            -item["effective_at_sort_ts"],
             -item["lead_score_value"],
             -item["event"].score,
         )
@@ -283,6 +332,19 @@ def admin(request: Request, db: Session = Depends(get_db)):
     total_companies = int(db.scalar(select(func.count()).select_from(Company)) or 0)
     total_deltas = int(db.scalar(select(func.count()).select_from(NarrativeDelta)) or 0)
     total_lead_scores = int(db.scalar(select(func.count()).select_from(LeadScore)) or 0)
+    total_evals = int(db.scalar(select(func.count()).select_from(OpportunityEval)) or 0)
+    useful_evals = int(
+        db.scalar(select(func.count()).select_from(OpportunityEval).where(OpportunityEval.review_status == "useful")) or 0
+    )
+    maybe_evals = int(
+        db.scalar(select(func.count()).select_from(OpportunityEval).where(OpportunityEval.review_status == "maybe")) or 0
+    )
+    not_useful_evals = int(
+        db.scalar(select(func.count()).select_from(OpportunityEval).where(OpportunityEval.review_status == "not_useful")) or 0
+    )
+    pending_evals = int(
+        db.scalar(select(func.count()).select_from(OpportunityEval).where(OpportunityEval.review_status == "pending")) or 0
+    )
     alert_deltas = int(
         db.scalar(select(func.count()).select_from(NarrativeDelta).where(NarrativeDelta.should_alert.is_(True))) or 0
     )
@@ -325,6 +387,11 @@ def admin(request: Request, db: Session = Depends(get_db)):
                 "total_companies": total_companies,
                 "total_deltas": total_deltas,
                 "total_lead_scores": total_lead_scores,
+                "total_evals": total_evals,
+                "pending_evals": pending_evals,
+                "useful_evals": useful_evals,
+                "maybe_evals": maybe_evals,
+                "not_useful_evals": not_useful_evals,
                 "alert_deltas": alert_deltas,
                 "fetch_errors": fetch_errors,
                 "extracted_sources": extracted_sources,
@@ -429,25 +496,72 @@ def _lead_score_to_view(score: LeadScore | None) -> dict | None:
     }
 
 
-def _event_card_view(event: SignalEvent) -> dict:
+def _event_card_view(event: SignalEvent, now: datetime | None = None) -> dict:
     delta_view = _delta_to_view(event.narrative_delta)
     lead_score_view = _lead_score_to_view(event.lead_score)
     display = _display_event_context(event)
-    if delta_view is None:
-        change_status = "standard"
-    elif delta_view["should_alert"]:
-        change_status = "alert"
-    else:
-        change_status = "recorded"
+    effective_at = _event_effective_at(event)
+    change_status = _change_status_for_feed(
+        event=event,
+        delta_view=delta_view,
+        lead_score_view=lead_score_view,
+        now=now,
+    )
     return {
         "event": event,
         "delta_view": delta_view,
         "lead_score_view": lead_score_view,
         "lead_score_value": lead_score_view["lead_score"] if lead_score_view else 0.0,
         "change_status": change_status,
+        "effective_at": effective_at,
+        "effective_at_sort_ts": effective_at.timestamp() if effective_at else 0.0,
         "display_title": display["title"],
         "display_subtitle": display["subtitle"],
     }
+
+
+def _change_status_for_feed(
+    event: SignalEvent,
+    delta_view: dict | None,
+    lead_score_view: dict | None,
+    now: datetime | None = None,
+) -> str:
+    if delta_view is None:
+        return "standard"
+    if not delta_view["should_alert"]:
+        return "recorded"
+
+    current_time = now or datetime.utcnow()
+    effective_at = _event_effective_at(event)
+    if effective_at is None:
+        return "recorded"
+    if current_time - effective_at > timedelta(days=PRIORITY_WINDOW_DAYS):
+        return "recorded"
+
+    lead_score = lead_score_view["lead_score"] if lead_score_view else 0.0
+    if lead_score < PRIORITY_MIN_LEAD_SCORE:
+        return "recorded"
+    return "alert"
+
+
+def _event_effective_at(event: SignalEvent) -> datetime | None:
+    return event.source.published_at or event.source.discovered_at or event.created_at
+
+
+def _priority_now_cards(event_cards: list[dict]) -> list[dict]:
+    curated: list[dict] = []
+    company_counts: dict[int, int] = {}
+    for card in event_cards:
+        if card["change_status"] != "alert":
+            continue
+        company_id = card["event"].company_id
+        if company_counts.get(company_id, 0) >= PRIORITY_MAX_PER_COMPANY:
+            continue
+        curated.append(card)
+        company_counts[company_id] = company_counts.get(company_id, 0) + 1
+        if len(curated) >= PRIORITY_MAX_COMPANIES:
+            break
+    return curated
 
 
 def _top_opportunities(db: Session, limit: int) -> list[dict]:
@@ -512,6 +626,44 @@ def _eval_counts(items: list[dict]) -> dict[str, int]:
         "maybe": sum(1 for item in items if item["status"] == "maybe"),
         "not_useful": sum(1 for item in items if item["status"] == "not_useful"),
     }
+
+
+def _eval_analytics(items: list[OpportunityEval]) -> dict[str, object]:
+    reviewed = [item for item in items if item.review_status != "pending"]
+    reviewed_count = len(reviewed)
+    useful_count = sum(1 for item in reviewed if item.review_status == "useful")
+    maybe_count = sum(1 for item in reviewed if item.review_status == "maybe")
+    not_useful_count = sum(1 for item in reviewed if item.review_status == "not_useful")
+    useful_rate = round((useful_count / reviewed_count) * 100, 1) if reviewed_count else 0.0
+    maybe_rate = round((maybe_count / reviewed_count) * 100, 1) if reviewed_count else 0.0
+    not_useful_rate = round((not_useful_count / reviewed_count) * 100, 1) if reviewed_count else 0.0
+    by_company: dict[str, dict[str, int]] = {}
+    for item in reviewed:
+        bucket = by_company.setdefault(item.company.name, {"useful": 0, "maybe": 0, "not_useful": 0})
+        bucket[item.review_status] += 1
+    company_rows = sorted(
+        (
+            {
+                "company": name,
+                "useful": counts["useful"],
+                "maybe": counts["maybe"],
+                "not_useful": counts["not_useful"],
+            }
+            for name, counts in by_company.items()
+        ),
+        key=lambda row: (-row["useful"], row["not_useful"], row["company"]),
+    )
+    return {
+        "reviewed_count": reviewed_count,
+        "useful_rate": useful_rate,
+        "maybe_rate": maybe_rate,
+        "not_useful_rate": not_useful_rate,
+        "by_company": company_rows,
+    }
+
+
+def _bounded_float(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, float(value)))
 
 
 def _display_event_context(event: SignalEvent) -> dict[str, str]:

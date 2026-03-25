@@ -4,6 +4,7 @@ from dealsignal.models.lead_score import LeadScore
 from dealsignal.models.narrative_delta import NarrativeDelta
 from dealsignal.models.opportunity_eval import OpportunityEval
 from dealsignal.models.pipeline_run import PipelineRun
+from dealsignal.models.scoring_config import ScoringConfig
 from dealsignal.models.signal_event import SignalEvent
 from dealsignal.models.source import Source
 
@@ -16,4 +17,5 @@ __all__ = [
     "Source",
     "SignalEvent",
     "PipelineRun",
+    "ScoringConfig",
 ]

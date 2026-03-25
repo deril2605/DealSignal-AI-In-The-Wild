@@ -7,7 +7,9 @@ from typing import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dealsignal.db")
+from dealsignal.state_sync import resolve_database_url
+
+DATABASE_URL = resolve_database_url(os.getenv("DATABASE_URL", "sqlite:///./dealsignal.db"))
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, future=True, connect_args=connect_args)
@@ -16,7 +18,7 @@ Base = declarative_base()
 
 
 def init_db() -> None:
-    from dealsignal.models import company, company_narrative, lead_score, narrative_delta, opportunity_eval, pipeline_run, signal_event, source  # noqa: F401
+    from dealsignal.models import company, company_narrative, lead_score, narrative_delta, opportunity_eval, pipeline_run, scoring_config, signal_event, source  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 

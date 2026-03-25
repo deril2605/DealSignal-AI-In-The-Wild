@@ -5,6 +5,19 @@ import os
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+SERVE_ROOT = Path(__file__).resolve().parents[1]
+
+
+def resolve_database_url(database_url: str | None = None) -> str:
+    value = (database_url or os.getenv("DATABASE_URL", "sqlite:///./dealsignal.db")).strip()
+    if not value.startswith("sqlite:///") or value.startswith("sqlite:////"):
+        return value
+    raw = value[len("sqlite:///") :]
+    path = Path(unquote(raw))
+    if path.is_absolute():
+        return value
+    return f"sqlite:///{(SERVE_ROOT / path).resolve().as_posix()}"
+
 
 def blob_sync_enabled() -> bool:
     return os.getenv("BLOB_SYNC_ENABLED", "").strip().lower() in {"1", "true", "yes"} or bool(
@@ -13,7 +26,7 @@ def blob_sync_enabled() -> bool:
 
 
 def sqlite_db_path() -> Path | None:
-    database_url = os.getenv("DATABASE_URL", "sqlite:///./dealsignal.db").strip()
+    database_url = resolve_database_url()
     if not database_url.startswith("sqlite:"):
         return None
 
