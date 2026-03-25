@@ -134,7 +134,7 @@ def serve() -> None:
     # Pull latest persisted SQLite snapshot before starting local UI.
     download_sqlite_from_blob(logger=logger)
     init_db()
-    uvicorn.run("dealsignal.app.main:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run("dealsignal.app.main:app", host="127.0.0.1", port=8001, reload=False)
 
 
 def parse_args() -> argparse.Namespace:

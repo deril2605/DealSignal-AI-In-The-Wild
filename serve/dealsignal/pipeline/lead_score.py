@@ -14,6 +14,7 @@ from dealsignal.models.lead_score import LeadScore
 from dealsignal.models.narrative_delta import NarrativeDelta
 from dealsignal.models.signal_event import SignalEvent
 from dealsignal.models.source import Source
+from dealsignal.pipeline.config import get_scoring_settings
 from dealsignal.pipeline.discover import WatchlistEntity, load_watchlist
 from dealsignal.pipeline.score import recency_weight
 
@@ -71,6 +72,7 @@ class ThesisProfile:
 
 
 def evaluate_lead_score(session: Session, event: SignalEvent, delta: NarrativeDelta | None) -> LeadScore:
+    settings = get_scoring_settings(session)
     thesis_profile = thesis_profile_for_company(event.company.name, event.company.sector)
     change_significance_score = round(((delta.significance_score if delta else 0.0) * 100), 2)
     signal_strength_score = _signal_strength_score(event)
@@ -80,6 +82,7 @@ def evaluate_lead_score(session: Session, event: SignalEvent, delta: NarrativeDe
     relationship_score = 0.0
     source_quality_score = _source_quality_score(event.source.url)
     lead_score = _weighted_lead_score(
+        settings=settings,
         change_significance_score=change_significance_score,
         signal_strength_score=signal_strength_score,
         recency_score=recency_score,
@@ -207,6 +210,7 @@ def _source_quality_score(url: str) -> float:
 
 def _weighted_lead_score(
     *,
+    settings,
     change_significance_score: float,
     signal_strength_score: float,
     recency_score: float,
@@ -216,12 +220,12 @@ def _weighted_lead_score(
     relationship_score: float,
 ) -> float:
     weighted = (
-        (0.24 * change_significance_score)
-        + (0.24 * signal_strength_score)
-        + (0.14 * recency_score)
-        + (0.14 * reinforcement_score)
-        + (0.16 * thesis_fit_score)
-        + (0.08 * source_quality_score)
+        (settings.lead_change_weight * change_significance_score)
+        + (settings.lead_strength_weight * signal_strength_score)
+        + (settings.lead_recency_weight * recency_score)
+        + (settings.lead_reinforcement_weight * reinforcement_score)
+        + (settings.lead_thesis_weight * thesis_fit_score)
+        + (settings.lead_source_weight * source_quality_score)
     )
     if relationship_score > 0:
         weighted += min(8.0, relationship_score * 0.08)

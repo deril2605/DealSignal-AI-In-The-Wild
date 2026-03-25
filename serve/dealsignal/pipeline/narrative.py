@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session
 from dealsignal.models.company_narrative import CompanyNarrative
 from dealsignal.models.narrative_delta import NarrativeDelta
 from dealsignal.models.signal_event import SignalEvent
+from dealsignal.pipeline.config import get_scoring_settings
 
 logger = logging.getLogger(__name__)
 
-ALERT_THRESHOLD = 0.6
 VERTICAL_KEYWORDS = {
     "financial services": {"payments", "fintech", "banking"},
     "healthcare": {"healthcare", "life sciences", "hospital"},
@@ -47,6 +47,7 @@ class NarrativeState:
 
 
 def evaluate_narrative_delta(session: Session, event: SignalEvent) -> NarrativeDelta:
+    settings = get_scoring_settings(session)
     snapshot = session.scalar(select(CompanyNarrative).where(CompanyNarrative.company_id == event.company_id))
     previous = _snapshot_to_state(snapshot)
     current_event_state = _state_from_event(event)
@@ -54,7 +55,7 @@ def evaluate_narrative_delta(session: Session, event: SignalEvent) -> NarrativeD
     delta_payload = _compute_delta(previous, merged)
     delta_types = [key for key, values in delta_payload.items() if values]
     significance = _score_delta(delta_payload, event)
-    should_alert = significance >= ALERT_THRESHOLD and bool(delta_types)
+    should_alert = significance >= settings.alert_threshold and bool(delta_types)
     reason = _build_reason(delta_payload, significance, should_alert)
 
     if snapshot is None:
