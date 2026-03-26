@@ -4,6 +4,9 @@ DealSignal helps a deal team spot the small public signals that often appear bef
 
 Instead of asking a human to manually track interviews, press releases, funding news, hiring moves, expansion plans, and partnership announcements across a watchlist, DealSignal does that work continuously and turns it into a short, ranked list of companies worth acting on now.
 
+Click below to watch the demo ⬇️
+[![Watch the demo](https://img.youtube.com/vi/AD4Av7BiQ00/maxresdefault.jpg)](https://www.youtube.com/watch?v=AD4Av7BiQ00)
+
 ## The Business Problem
 
 The problem is not a lack of information.
